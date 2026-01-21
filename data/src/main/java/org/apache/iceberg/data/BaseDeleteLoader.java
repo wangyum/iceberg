@@ -20,7 +20,9 @@ package org.apache.iceberg.data;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Collections;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
@@ -109,8 +111,17 @@ public class BaseDeleteLoader implements DeleteLoader {
   }
 
   @Override
-  public StructLikeSet loadEqualityDeletes(Iterable<DeleteFile> deleteFiles, Schema projection) {
+  public Set<StructLike> loadEqualityDeletes(Iterable<DeleteFile> deleteFiles, Schema projection) {
     LOG.debug("loadEqualityDeletes called with {} files", Iterables.size(deleteFiles));
+
+    // Handle single EDV file case efficiently
+    if (Iterables.size(deleteFiles) == 1) {
+      DeleteFile deleteFile = Iterables.getOnlyElement(deleteFiles);
+      if (isEqualityDeleteVector(deleteFile)) {
+        LOG.debug("Optimized loading for single EDV file: {}", deleteFile.location());
+        return readEqualityDeleteVector(deleteFile, projection);
+      }
+    }
 
     // Create a set to hold all deletes
     StructLikeSet deleteSet = StructLikeSet.create(projection.asStruct());
@@ -123,9 +134,10 @@ public class BaseDeleteLoader implements DeleteLoader {
             deleteFile -> {
               if (isEqualityDeleteVector(deleteFile)) {
                 LOG.debug("Reading EDV file: {}", deleteFile.location());
-                // Read EDV file and convert to iterable for merging
-                StructLikeSet edvSet = readEqualityDeleteVector(deleteFile, projection);
-                return ImmutableList.copyOf(edvSet);
+                // Read EDV file
+                Set<StructLike> edvSet = readEqualityDeleteVector(deleteFile, projection);
+                // Return as Iterable<StructLike>
+                return edvSet;
               } else {
                 LOG.debug("Reading traditional delete file: {}", deleteFile.location());
                 return getOrReadEqDeletes(deleteFile, projection);
@@ -152,15 +164,17 @@ public class BaseDeleteLoader implements DeleteLoader {
    *
    * @param deleteFile the EDV file to read
    * @param projection the schema projection for the equality field
-   * @return a {@link StructLikeSet} containing the deleted values from the bitmap
+   * @return a {@link Set} containing the deleted values from the bitmap
    */
-  private StructLikeSet readEqualityDeleteVector(DeleteFile deleteFile, Schema projection) {
+  private Set<StructLike> readEqualityDeleteVector(DeleteFile deleteFile, Schema projection) {
     LOG.debug("Reading equality delete vector from {}", deleteFile.location());
 
     Preconditions.checkArgument(
         deleteFile.equalityFieldIds().size() == 1,
         "Equality delete vector must have exactly one equality field, got %s",
         deleteFile.equalityFieldIds().size());
+
+    int equalityFieldId = deleteFile.equalityFieldIds().get(0);
 
     // Read the Puffin blob containing the bitmap
     InputFile inputFile = loadInputFile.apply(deleteFile);
@@ -171,26 +185,10 @@ public class BaseDeleteLoader implements DeleteLoader {
 
     LOG.debug("Bitmap deserialized with {} values", bitmap.cardinality());
 
-    // Create a StructLikeSet to hold the deleted values
-    StructLikeSet deleteSet = StructLikeSet.create(projection.asStruct());
-
-    // Use InternalRecordWrapper to wrap GenericRecords, same as traditional equality deletes
-    InternalRecordWrapper wrapper = new InternalRecordWrapper(projection.asStruct());
-
-    // Populate the set with values from the bitmap
-    bitmap.forEach(
-        value -> {
-          // Create a GenericRecord for this value, same as traditional path
-          GenericRecord record = GenericRecord.create(projection.asStruct());
-          record.set(0, value);
-
-          // Wrap it with InternalRecordWrapper and add to set
-          deleteSet.add(wrapper.copyFor(record));
-        });
-
-    LOG.debug("Delete set populated with {} values", deleteSet.size());
-
-    return deleteSet;
+    // Use BitmapBackedStructLikeSet for memory efficiency
+    // This avoids hydrating thousands/millions of StructLike objects
+    return new org.apache.iceberg.deletes.BitmapBackedStructLikeSet(
+        bitmap, equalityFieldId, projection);
   }
 
   private Iterable<StructLike> getOrReadEqDeletes(DeleteFile deleteFile, Schema projection) {

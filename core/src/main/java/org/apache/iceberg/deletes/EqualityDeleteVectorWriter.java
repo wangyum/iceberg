@@ -156,6 +156,12 @@ public class EqualityDeleteVectorWriter<T> implements FileWriter<T, DeleteWriteR
         return;
       }
 
+      // Check for possible size overflow before optimization/serialization
+      if (bitmap.serializedSizeInBytes() > Integer.MAX_VALUE) {
+        throw new IllegalStateException(
+            "Equality delete vector is too large: " + bitmap.serializedSizeInBytes() + " bytes");
+      }
+
       // Optimize bitmap with run-length encoding
       bitmap.runLengthEncode();
 
@@ -173,7 +179,22 @@ public class EqualityDeleteVectorWriter<T> implements FileWriter<T, DeleteWriteR
 
   private Blob toBlob() {
     // Serialize the bitmap to a ByteBuffer
-    int size = (int) bitmap.serializedSizeInBytes();
+    long sizeInBytes = bitmap.serializedSizeInBytes();
+
+    // Validate bitmap size is within ByteBuffer limits (2GB max)
+    // This is extremely unlikely in practice (would require billions of sparse deletes)
+    // but we validate for safety
+    if (sizeInBytes > Integer.MAX_VALUE) {
+      throw new IllegalStateException(
+          String.format(
+              java.util.Locale.ROOT,
+              "Bitmap size %d bytes exceeds maximum ByteBuffer size %d. "
+                  + "Consider using traditional equality deletes for extremely large delete sets.",
+              sizeInBytes,
+              Integer.MAX_VALUE));
+    }
+
+    int size = (int) sizeInBytes;
     ByteBuffer buffer = ByteBuffer.allocate(size);
     buffer.order(java.nio.ByteOrder.LITTLE_ENDIAN);
     bitmap.serialize(buffer);

@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.types.Types;
@@ -119,16 +120,24 @@ public class TestBitmapBackedStructLikeSet {
   }
 
   @Test
-  public void testIteratorUnsupported() {
+  public void testIterator() {
+    // Iterator is now supported for mixed-format scenarios (EDV + traditional deletes)
     RoaringPositionBitmap bitmap = new RoaringPositionBitmap();
     bitmap.set(100);
+    bitmap.set(200);
+    bitmap.set(300);
 
     BitmapBackedStructLikeSet set =
         new BitmapBackedStructLikeSet(bitmap, EQUALITY_FIELD_ID, SCHEMA);
 
-    assertThatThrownBy(() -> set.iterator())
-        .isInstanceOf(UnsupportedOperationException.class)
-        .hasMessageContaining("Iteration is not supported");
+    // Collect values from iterator
+    java.util.List<Long> values = new java.util.ArrayList<>();
+    for (StructLike struct : set) {
+      values.add((Long) struct.get(0, Long.class));
+    }
+
+    // Verify all values are present
+    assertThat(values).containsExactlyInAnyOrder(100L, 200L, 300L);
   }
 
   @Test

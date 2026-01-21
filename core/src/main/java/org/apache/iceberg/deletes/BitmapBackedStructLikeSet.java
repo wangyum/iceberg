@@ -20,13 +20,18 @@ package org.apache.iceberg.deletes;
 
 import java.util.AbstractSet;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
+import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.util.StructLikeWrapper;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
+import org.roaringbitmap.IntIterator;
 
 /**
  * A {@link Set} implementation backed by a {@link RoaringPositionBitmap} for efficient equality
@@ -44,6 +49,8 @@ public class BitmapBackedStructLikeSet extends AbstractSet<StructLike> implement
   private final int equalityFieldId;
   private final int fieldIndex;
 
+  private final Schema schema;
+
   /**
    * Creates a new bitmap-backed set for equality deletes.
    *
@@ -55,7 +62,7 @@ public class BitmapBackedStructLikeSet extends AbstractSet<StructLike> implement
       RoaringPositionBitmap bitmap, int equalityFieldId, Schema schema) {
     this.bitmap = Preconditions.checkNotNull(bitmap, "bitmap cannot be null");
     this.equalityFieldId = equalityFieldId;
-    Preconditions.checkNotNull(schema, "schema cannot be null");
+    this.schema = Preconditions.checkNotNull(schema, "schema cannot be null");
 
     // Find the field index for the equality field ID
     Types.NestedField field = schema.findField(equalityFieldId);
@@ -77,6 +84,76 @@ public class BitmapBackedStructLikeSet extends AbstractSet<StructLike> implement
     }
     Preconditions.checkState(index >= 0, "Field index not found for field %s", equalityFieldId);
     this.fieldIndex = index;
+  }
+
+  @Override
+  public Iterator<StructLike> iterator() {
+    return new BitmapIterator();
+  }
+
+  private class BitmapIterator implements Iterator<StructLike> {
+    private final Iterator<Long> delegate;
+
+    BitmapIterator() {
+      // RoaringPositionBitmap doesn't expose a Long iterator directly,
+      // so we use forEach to build a list or implement a custom iterator.
+      // For simplicity and since iterator() is rarely used in hot paths (mostly tests/tools),
+      // we can collect to a list. For true laziness, we'd need to extend RoaringPositionBitmap.
+      //
+      // However, RoaringBitmap DOES expose an IntIterator.
+      // Let's assume we can get an iterator from the underlying bitmap.
+      // Since RoaringPositionBitmap wraps RoaringBitmap, we can iterate it.
+      this.delegate = new RoaringPositionBitmapIterator(bitmap);
+    }
+
+    @Override
+    public boolean hasNext() {
+      return delegate.hasNext();
+    }
+
+    @Override
+    public StructLike next() {
+      if (!hasNext()) {
+        throw new NoSuchElementException();
+      }
+      Long value = delegate.next();
+      // Create a fresh GenericRecord for each iteration
+      // This is necessary because iterator() returns distinct objects
+      GenericRecord iterRecord = GenericRecord.create(schema.asStruct());
+      iterRecord.set(fieldIndex, value);
+      return iterRecord;
+    }
+  }
+
+  /**
+   * Adapts RoaringPositionBitmap iteration to Iterator<Long>.
+   * Note: This implementation assumes the standard RoaringPositionBitmap structure.
+   */
+  private static class RoaringPositionBitmapIterator implements Iterator<Long> {
+    // This is a simplified iterator that collects all values.
+    // In a production environment, this should be lazy to avoid memory overhead.
+    // Given the previous limitation, even a list-based iterator is better than throwing exception,
+    // as it allows tests and tools to work.
+    private final Iterator<Long> iterator;
+
+    RoaringPositionBitmapIterator(RoaringPositionBitmap bitmap) {
+      // Use a list to collect values for iteration
+      // This is not ideal for huge bitmaps but enables functionality
+      // A better approach would be adding a lazy iterator to RoaringPositionBitmap class
+      java.util.List<Long> values = new java.util.ArrayList<>();
+      bitmap.forEach(values::add);
+      this.iterator = values.iterator();
+    }
+
+    @Override
+    public boolean hasNext() {
+      return iterator.hasNext();
+    }
+
+    @Override
+    public Long next() {
+      return iterator.next();
+    }
   }
 
   @Override
@@ -117,14 +194,6 @@ public class BitmapBackedStructLikeSet extends AbstractSet<StructLike> implement
 
     // Check if the value is in the bitmap
     return bitmap.contains(longValue);
-  }
-
-  @Override
-  public Iterator<StructLike> iterator() {
-    // Iteration not needed for delete filtering, throw UnsupportedOperationException
-    throw new UnsupportedOperationException(
-        "Iteration is not supported for BitmapBackedStructLikeSet. "
-            + "This set is optimized for contains() lookups only.");
   }
 
   @Override
