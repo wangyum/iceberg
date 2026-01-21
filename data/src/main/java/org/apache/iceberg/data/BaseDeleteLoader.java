@@ -112,26 +112,26 @@ public class BaseDeleteLoader implements DeleteLoader {
   public StructLikeSet loadEqualityDeletes(Iterable<DeleteFile> deleteFiles, Schema projection) {
     LOG.debug("loadEqualityDeletes called with {} files", Iterables.size(deleteFiles));
 
-    // Check if there's only one EDV file
-    if (Iterables.size(deleteFiles) == 1) {
-      DeleteFile deleteFile = Iterables.getOnlyElement(deleteFiles);
-      LOG.debug(
-          "Single delete file: format={}, content={}", deleteFile.format(), deleteFile.content());
-
-      if (isEqualityDeleteVector(deleteFile)) {
-        LOG.debug("Detected equality delete vector, using EDV path");
-        return readEqualityDeleteVector(deleteFile, projection);
-      } else {
-        LOG.debug("Not an EDV, using traditional path");
-      }
-    } else {
-      LOG.debug("Multiple delete files, using traditional path");
-    }
-
-    // Traditional path: load equality deletes from Parquet/Avro/ORC
-    Iterable<Iterable<StructLike>> deletes =
-        execute(deleteFiles, deleteFile -> getOrReadEqDeletes(deleteFile, projection));
+    // Create a set to hold all deletes
     StructLikeSet deleteSet = StructLikeSet.create(projection.asStruct());
+
+    // Process each delete file based on its format
+    // This handles mixed formats (EDV + traditional) which can occur during compaction
+    Iterable<Iterable<StructLike>> deletes =
+        execute(
+            deleteFiles,
+            deleteFile -> {
+              if (isEqualityDeleteVector(deleteFile)) {
+                LOG.debug("Reading EDV file: {}", deleteFile.location());
+                // Read EDV file and convert to iterable for merging
+                StructLikeSet edvSet = readEqualityDeleteVector(deleteFile, projection);
+                return ImmutableList.copyOf(edvSet);
+              } else {
+                LOG.debug("Reading traditional delete file: {}", deleteFile.location());
+                return getOrReadEqDeletes(deleteFile, projection);
+              }
+            });
+
     Iterables.addAll(deleteSet, Iterables.concat(deletes));
     return deleteSet;
   }
