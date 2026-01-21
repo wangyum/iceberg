@@ -165,6 +165,31 @@ public class GenericFileWriterFactory extends BaseFileWriterFactory<Record> {
     builder.createWriterFunc(GenericOrcWriter::buildWriter);
   }
 
+  @Override
+  protected Long extractEqualityFieldValue(Record row, int fieldId) {
+    // Find the field index for this field ID in the equality delete schema
+    Schema schema = equalityDeleteRowSchema();
+
+    // Find the field index by iterating through columns
+    int fieldIndex = -1;
+    for (int i = 0; i < schema.columns().size(); i++) {
+      if (schema.columns().get(i).fieldId() == fieldId) {
+        fieldIndex = i;
+        break;
+      }
+    }
+
+    if (fieldIndex < 0) {
+      throw new IllegalArgumentException(
+          String.format(
+              java.util.Locale.ROOT, "Field ID %d not found in equality delete schema", fieldId));
+    }
+
+    // Extract the value from the record
+    Object value = row.get(fieldIndex, Long.class);
+    return (Long) value;
+  }
+
   public static class Builder {
     private final Table table;
     private FileFormat dataFileFormat;

@@ -179,6 +179,85 @@ for Puffin v1.
 [roaring-bitmap-portable-serialization]: https://github.com/RoaringBitmap/RoaringFormatSpec?tab=readme-ov-file#extension-for-64-bit-implementations
 [roaring-bitmap-general-layout]: https://github.com/RoaringBitmap/RoaringFormatSpec?tab=readme-ov-file#general-layout
 
+#### `equality-delete-vector-v1` blob type
+
+A serialized bitmap of deleted values for a single LONG equality field.
+The bitmap stores the actual column values (not row positions). This is used to
+optimize storage for equality deletes on LONG primary key columns, providing
+40-100x storage reduction compared to traditional equality delete files.
+
+**Use Case**: When deleting rows by a single LONG primary key (e.g., `user_id`,
+`order_id`), storing the full row data in Parquet/Avro/ORC is wasteful. This
+blob type stores only the deleted integer values as a compact bitmap.
+
+**Constraints**:
+- Only supports single LONG equality field (not composite keys)
+- Only supports non-negative LONG values (`>= 0`)
+- Does not support NULL values
+- Readers must apply deletes only when data file's sequence number is
+  strictly less than the delete file's sequence number (see Iceberg spec for
+  equality delete semantics)
+
+**Serialization Format**:
+
+The serialization format is identical to `deletion-vector-v1`, using the same
+magic number and CRC-32 checksum for consistency.
+
+The serialized blob contains:
+
+- Combined length of the vector and magic bytes stored as 4 bytes, big-endian
+- A 4-byte magic sequence, `D1 D3 39 64` (same as deletion-vector-v1)
+- The value bitmap, serialized using the Roaring bitmap
+  ["portable" format][roaring-bitmap-portable-serialization]:
+  - The number of 32-bit Roaring bitmaps, serialized as 8 bytes, little-endian
+  - For each 32-bit Roaring bitmap, ordered by unsigned comparison of the 32-bit keys:
+    - The key stored as 4 bytes, little-endian
+    - A [32-bit Roaring bitmap][roaring-bitmap-general-layout]
+- A CRC-32 checksum of the magic bytes and serialized vector as 4 bytes, big-endian
+
+Note that the length and CRC fields are stored using big-endian, but the
+Roaring bitmap format uses little-endian values.
+
+**Blob Properties**:
+
+The blob's `properties` must:
+
+- Include `equality-field-id`, the field ID (integer) of the LONG equality column
+- Include `cardinality`, the number of deleted values in the bitmap
+- Include `value-min`, the minimum deleted value as a string (for scan filtering)
+- Include `value-max`, the maximum deleted value as a string (for scan filtering)
+- Omit `compression-codec`; `equality-delete-vector-v1` is not compressed
+
+Snapshot ID and sequence number are not known at the time the Puffin file is
+created. `snapshot-id` and `sequence-number` must be set to -1 in blob metadata
+for Puffin v1.
+
+**Comparison with deletion-vector-v1**:
+
+| Aspect | deletion-vector-v1 | equality-delete-vector-v1 |
+|--------|-------------------|---------------------------|
+| Values stored | Row positions (0, 1, 2, ...) | Column values (100, 500, 1000, ...) |
+| Scope | Single data file | Multiple data files (global or partitioned) |
+| Key property | `referenced-data-file` | `equality-field-id` |
+| Sequence semantics | data_seq <= delete_seq | data_seq < delete_seq (strictly) |
+| Value constraints | Non-negative positions | Non-negative LONG values only |
+
+**Example**:
+
+For a table with schema `(user_id BIGINT, name STRING, email STRING)`, deleting
+users with IDs 100, 500, and 1000:
+
+Traditional equality delete file (Parquet):
+- Stores 3 full rows with all columns
+- Size: ~150-300 bytes
+
+Equality delete vector (Puffin):
+- Stores 3 LONG values in bitmap
+- Size: ~40-60 bytes
+- Reduction: 75-87%
+
+For 1 million deletes, the reduction is typically 98-99% (40-100x smaller).
+
 ### Compression codecs
 
 The data can also be uncompressed. If it is compressed the codec should be one of

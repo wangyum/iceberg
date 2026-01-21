@@ -26,6 +26,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Schema;
@@ -35,6 +36,7 @@ import org.apache.iceberg.data.avro.PlannedDataReader;
 import org.apache.iceberg.data.orc.GenericOrcReader;
 import org.apache.iceberg.data.parquet.GenericParquetReaders;
 import org.apache.iceberg.deletes.Deletes;
+import org.apache.iceberg.deletes.EqualityDeleteVectors;
 import org.apache.iceberg.deletes.PositionDeleteIndex;
 import org.apache.iceberg.deletes.PositionDeleteIndexUtil;
 import org.apache.iceberg.expressions.Expression;
@@ -108,10 +110,86 @@ public class BaseDeleteLoader implements DeleteLoader {
 
   @Override
   public StructLikeSet loadEqualityDeletes(Iterable<DeleteFile> deleteFiles, Schema projection) {
+    LOG.debug("loadEqualityDeletes called with {} files", Iterables.size(deleteFiles));
+
+    // Check if there's only one EDV file
+    if (Iterables.size(deleteFiles) == 1) {
+      DeleteFile deleteFile = Iterables.getOnlyElement(deleteFiles);
+      LOG.debug(
+          "Single delete file: format={}, content={}", deleteFile.format(), deleteFile.content());
+
+      if (isEqualityDeleteVector(deleteFile)) {
+        LOG.debug("Detected equality delete vector, using EDV path");
+        return readEqualityDeleteVector(deleteFile, projection);
+      } else {
+        LOG.debug("Not an EDV, using traditional path");
+      }
+    } else {
+      LOG.debug("Multiple delete files, using traditional path");
+    }
+
+    // Traditional path: load equality deletes from Parquet/Avro/ORC
     Iterable<Iterable<StructLike>> deletes =
         execute(deleteFiles, deleteFile -> getOrReadEqDeletes(deleteFile, projection));
     StructLikeSet deleteSet = StructLikeSet.create(projection.asStruct());
     Iterables.addAll(deleteSet, Iterables.concat(deletes));
+    return deleteSet;
+  }
+
+  /**
+   * Checks if a delete file is an equality delete vector (stored as Puffin blob).
+   *
+   * @param deleteFile the delete file to check
+   * @return true if the file is an equality delete vector
+   */
+  private boolean isEqualityDeleteVector(DeleteFile deleteFile) {
+    return deleteFile.format() == FileFormat.PUFFIN
+        && deleteFile.content() == FileContent.EQUALITY_DELETES;
+  }
+
+  /**
+   * Reads an equality delete vector from a Puffin file and returns a bitmap-backed set.
+   *
+   * @param deleteFile the EDV file to read
+   * @param projection the schema projection for the equality field
+   * @return a {@link StructLikeSet} containing the deleted values from the bitmap
+   */
+  private StructLikeSet readEqualityDeleteVector(DeleteFile deleteFile, Schema projection) {
+    LOG.debug("Reading equality delete vector from {}", deleteFile.location());
+
+    Preconditions.checkArgument(
+        deleteFile.equalityFieldIds().size() == 1,
+        "Equality delete vector must have exactly one equality field, got %s",
+        deleteFile.equalityFieldIds().size());
+
+    // Read the Puffin blob containing the bitmap
+    InputFile inputFile = loadInputFile.apply(deleteFile);
+
+    // Get the deserialized bitmap
+    org.apache.iceberg.deletes.RoaringPositionBitmap bitmap =
+        EqualityDeleteVectors.readEqualityDeleteVectorBitmap(inputFile);
+
+    LOG.debug("Bitmap deserialized with {} values", bitmap.cardinality());
+
+    // Create a StructLikeSet to hold the deleted values
+    StructLikeSet deleteSet = StructLikeSet.create(projection.asStruct());
+
+    // Use InternalRecordWrapper to wrap GenericRecords, same as traditional equality deletes
+    InternalRecordWrapper wrapper = new InternalRecordWrapper(projection.asStruct());
+
+    // Populate the set with values from the bitmap
+    bitmap.forEach(
+        value -> {
+          // Create a GenericRecord for this value, same as traditional path
+          GenericRecord record = GenericRecord.create(projection.asStruct());
+          record.set(0, value);
+
+          // Wrap it with InternalRecordWrapper and add to set
+          deleteSet.add(wrapper.copyFor(record));
+        });
+
+    LOG.debug("Delete set populated with {} values", deleteSet.size());
+
     return deleteSet;
   }
 

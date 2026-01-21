@@ -29,4 +29,10 @@ public final class StandardBlobTypes {
 
   /** A serialized deletion vector according to the Iceberg spec */
   public static final String DV_V1 = "deletion-vector-v1";
+
+  /**
+   * A serialized equality delete vector (bitmap of deleted values for a single LONG equality field)
+   * according to the Iceberg spec
+   */
+  public static final String EDV_V1 = "equality-delete-vector-v1";
 }

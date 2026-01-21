@@ -865,11 +865,22 @@ Delete files and deletion vector metadata that match the filters must be applied
 * An _equality_ delete file must be applied to a data file when all of the following are true:
     - The data file's data sequence number is _strictly less than_ the delete's data sequence number
     - The data file's partition (both spec id and partition values) is equal [4] to the delete file's partition _or_ the delete file's partition spec is unpartitioned
+* An _equality delete vector_ (stored as `equality-delete-vector-v1` blob in a Puffin file) must be applied to a data file when all of the following are true:
+    - The data file's data sequence number is _strictly less than_ the delete's data sequence number
+    - The data file's partition (both spec id and partition values) is equal [4] to the delete file's partition _or_ the delete file's partition spec is unpartitioned
+    - The equality field from the delete vector matches a field in the data file schema
 
 In general, deletes are applied only to data files that are older and in the same partition, except for two special cases:
 
-* Equality delete files stored with an unpartitioned spec are applied as global deletes. Otherwise, delete files do not apply to files in other partitions.
+* Equality delete files (including equality delete vectors) stored with an unpartitioned spec are applied as global deletes. Otherwise, delete files do not apply to files in other partitions.
 * Position deletes (vectors and files) must be applied to data files from the same commit, when the data and delete file data sequence numbers are equal. This allows deleting rows that were added in the same commit.
+
+Equality delete vectors follow the same application rules as traditional equality delete files, with the additional requirement that the equality field ID in the delete vector must match a field in the data file schema. When reading equality delete vectors, implementations must:
+
+1. Read the bitmap from the Puffin blob (see Puffin spec for `equality-delete-vector-v1` format)
+2. Extract the equality field ID from the blob properties
+3. For each row in the data file, check if the row's value for that field is present in the bitmap
+4. Apply the delete if the value is found and the sequence number constraint is satisfied
 
 Notes:
 
@@ -1212,6 +1223,48 @@ equality_ids=[1, 2]
 ```
 
 If a delete column in an equality delete file is later dropped from the table, it must still be used when applying the equality deletes. If a column was added to a table and later used as a delete column in an equality delete file, the column value is read for older data files using normal projection rules (defaults to `null`).
+
+#### Equality Delete Vectors
+
+Equality delete vectors are an optimized storage format for equality deletes on a single LONG column, storing deleted values as Roaring bitmaps in Puffin files instead of full row data. This provides 40-100x storage reduction for common delete patterns on primary key columns.
+
+**Format**: Equality delete vectors are stored as `equality-delete-vector-v1` blobs in Puffin files (see Puffin spec). The file format is `PUFFIN` and the content type is `EQUALITY_DELETES`.
+
+**Constraints**:
+- Only supports single LONG equality field (not composite keys)
+- Only supports non-negative LONG values (`>= 0`)
+- Does not support NULL values
+- Applies with same sequence number semantics as traditional equality deletes (data sequence number must be _strictly less than_ delete sequence number)
+
+**Application Rules**: An equality delete vector must be applied to a data file using the same rules as traditional equality delete files, with an additional constraint that the equality field from the delete vector must match a field in the data file schema.
+
+**Fallback**: Writers should fall back to traditional equality delete files when any constraint is violated (composite keys, non-LONG types, negative values, NULL values).
+
+**Example**: For a table with schema `(user_id BIGINT, name STRING, email STRING)`:
+
+Traditional equality delete (Parquet/Avro/ORC):
+```text
+equality_ids=[1]
+
+ 1: user_id | 2: name  | 3: email
+------------|----------|----------------
+ 100        | Alice    | alice@test.com
+ 500        | Bob      | bob@test.com
+ 1000       | Charlie  | charlie@test.com
+```
+
+Equality delete vector (Puffin bitmap):
+```text
+equality-delete-vector-v1 blob properties:
+  equality-field-id: 1
+  cardinality: 3
+  value-min: 100
+  value-max: 1000
+
+Bitmap contents: {100, 500, 1000}
+```
+
+The equality delete vector stores only the three LONG values in a compact bitmap, providing significant storage savings compared to storing full rows. For 1 million deletes, the storage reduction is typically 98-99% (40-100x smaller).
 
 #### Delete File Stats
 
