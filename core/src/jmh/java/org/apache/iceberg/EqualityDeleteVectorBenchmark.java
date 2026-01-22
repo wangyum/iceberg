@@ -29,7 +29,10 @@ import org.apache.iceberg.deletes.BitmapBackedStructLikeSet;
 import org.apache.iceberg.deletes.EqualityDeleteVectorWriter;
 import org.apache.iceberg.deletes.EqualityDeleteVectors;
 import org.apache.iceberg.deletes.RoaringPositionBitmap;
+import org.apache.iceberg.encryption.EncryptedFiles;
+import org.apache.iceberg.encryption.EncryptedOutputFile;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.DeleteWriteResult;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
@@ -108,17 +111,14 @@ public class EqualityDeleteVectorBenchmark {
       }
     }
 
-    // Pre-create bitmap for read benchmarks
-    bitmap = new RoaringPositionBitmap();
-    for (Long id : deleteIds) {
-      bitmap.set(id);
-    }
-
     // Pre-create EDV file for read benchmarks
     edvOutputFile =
         Files.localOutput(new File(tempDir, "edv-benchmark-" + deleteCount + ".puffin"));
-    writeEDVFile(bitmap, edvOutputFile);
+    writeEDVFile(edvOutputFile);
     edvInputFile = Files.localInput(edvOutputFile.toInputFile().location());
+
+    // Load bitmap from file for read benchmarks
+    bitmap = EqualityDeleteVectors.readEqualityDeleteVectorBitmap(edvInputFile);
   }
 
   @TearDown(Level.Trial)
@@ -137,21 +137,23 @@ public class EqualityDeleteVectorBenchmark {
    */
   @Benchmark
   public void writeEDV(Blackhole blackhole) throws IOException {
-    RoaringPositionBitmap bm = new RoaringPositionBitmap();
-    for (Long id : deleteIds) {
-      bm.set(id);
-    }
-
     File outputFile = new File(tempDir, "write-edv-" + System.nanoTime() + ".puffin");
     OutputFile out = Files.localOutput(outputFile);
 
-    EqualityDeleteVectorWriter writer = new EqualityDeleteVectorWriter(out, 1, "id", null);
+    PartitionSpec unpartitioned = PartitionSpec.unpartitioned();
+    EncryptedOutputFile encryptedOut = EncryptedFiles.encryptedOutput(out, (byte[]) null);
+
+    EqualityDeleteVectorWriter<Long> writer =
+        new EqualityDeleteVectorWriter<>(
+            encryptedOut, unpartitioned, null, null, 1, (row, fieldId) -> row);
+
     for (Long id : deleteIds) {
       writer.write(id);
     }
-    DeleteFile deleteFile = writer.complete();
+    writer.close();
+    DeleteWriteResult result = writer.result();
 
-    blackhole.consume(deleteFile);
+    blackhole.consume(result);
     outputFile.delete();
   }
 
@@ -274,12 +276,18 @@ public class EqualityDeleteVectorBenchmark {
 
   // ========== Helper Methods ==========
 
-  private void writeEDVFile(RoaringPositionBitmap bm, OutputFile out) throws IOException {
-    EqualityDeleteVectorWriter writer = new EqualityDeleteVectorWriter(out, 1, "id", null);
+  private void writeEDVFile(OutputFile out) throws IOException {
+    PartitionSpec unpartitioned = PartitionSpec.unpartitioned();
+    EncryptedOutputFile encryptedOut = EncryptedFiles.encryptedOutput(out, (byte[]) null);
+
+    EqualityDeleteVectorWriter<Long> writer =
+        new EqualityDeleteVectorWriter<>(
+            encryptedOut, unpartitioned, null, null, 1, (row, fieldId) -> row);
+
     for (Long id : deleteIds) {
       writer.write(id);
     }
-    writer.complete();
+    writer.close();
   }
 
   private void deleteRecursively(File file) {
