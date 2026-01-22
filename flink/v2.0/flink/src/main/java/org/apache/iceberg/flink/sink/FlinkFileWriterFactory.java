@@ -143,6 +143,32 @@ public class FlinkFileWriterFactory extends BaseFileWriterFactory<RowData> imple
     return equalityDeleteFlinkType;
   }
 
+  @Override
+  protected Long extractEqualityFieldValue(RowData row, int fieldId) {
+    // Find field index in equality delete schema
+    Schema schema = equalityDeleteRowSchema();
+    int fieldIndex = -1;
+    for (int i = 0; i < schema.columns().size(); i++) {
+      if (schema.columns().get(i).fieldId() == fieldId) {
+        fieldIndex = i;
+        break;
+      }
+    }
+
+    if (fieldIndex < 0) {
+      throw new IllegalArgumentException(
+          String.format(java.util.Locale.ROOT, 
+              "Field ID %d not found in equality delete schema %s", fieldId, schema));
+    }
+
+    // Extract LONG value from Flink RowData
+    if (row.isNullAt(fieldIndex)) {
+      return null;
+    }
+
+    return row.getLong(fieldIndex);
+  }
+
   public static class Builder {
     private final Table table;
     private FileFormat dataFileFormat;

@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.io.UncheckedIOException;
 import java.util.Map;
+import java.util.Set;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionSpec;
@@ -303,6 +304,22 @@ public abstract class BaseFileWriterFactory<T> implements FileWriterFactory<T>, 
     if (field == null || field.type().typeId() != Type.TypeID.LONG) {
       LOG.debug("Field is not LONG type, using traditional path");
       return false;
+    }
+
+    // Warn if field is not an identifier field (best practice for CDC use cases)
+    // Note: We don't block non-identifier fields - EDV can work on any LONG field
+    // This maintains consistency with equality deletes (which can use any columns)
+    if (table != null) {
+      Set<Integer> identifierFieldIds = table.schema().identifierFieldIds();
+      if (identifierFieldIds == null || !identifierFieldIds.contains(equalityFieldId)) {
+        LOG.warn(
+            "Equality field '{}' is not marked as an identifier field. "
+                + "EDV works best on identifier fields (e.g., CDC _row_id with sequential values). "
+                + "For optimal compression, consider: ALTER TABLE {} SET IDENTIFIER FIELDS {}",
+            field.name(),
+            table.name(),
+            field.name());
+      }
     }
 
     LOG.debug("All checks passed, using EDV!");
