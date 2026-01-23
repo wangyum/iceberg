@@ -168,6 +168,24 @@ public class FlinkFileWriterFactory extends BaseFileWriterFactory<RowData> imple
     }
 
     return row.getLong(fieldIndex);
+
+  /**
+   * Creates an equality delete vector writer following the Position DV pattern.
+   *
+   * <p>This method provides Flink-specific value extraction for use with {@link
+   * org.apache.iceberg.io.PartitioningEDVWriter}.
+   *
+   * @param fileFactory factory for creating output files
+   * @return a PartitioningEDVWriter configured for Flink RowData
+   */
+  public org.apache.iceberg.io.PartitioningEDVWriter<RowData> newEqualityDeleteVectorWriter(
+      org.apache.iceberg.io.OutputFileFactory fileFactory) {
+    // Value extractor using the existing extractEqualityFieldValue logic
+    java.util.function.BiFunction<RowData, Integer, Long> extractor =
+        this::extractEqualityFieldValue;
+
+    return new org.apache.iceberg.io.PartitioningEDVWriter<>(fileFactory, extractor);
+  }
   }
 
   public static class Builder {
