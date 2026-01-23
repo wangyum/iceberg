@@ -158,14 +158,20 @@ public abstract class BaseFileWriterFactory<T> implements FileWriterFactory<T>, 
   /**
    * Extracts the value of a field from a row for equality delete vector writing.
    *
-   * <p>Subclasses must implement this to convert from their row representation (e.g., InternalRow
-   * for Spark) to a Long value.
+   * <p>Subclasses should override this to enable equality delete vector support. The default
+   * implementation throws UnsupportedOperationException to allow engines to opt-in to this feature.
    *
    * @param row the row to extract from
    * @param fieldId the field ID to extract
    * @return the extracted Long value, or null if the field is null
+   * @throws UnsupportedOperationException if equality delete vectors are not supported by this
+   *     engine
    */
-  protected abstract Long extractEqualityFieldValue(T row, int fieldId);
+  protected Long extractEqualityFieldValue(T row, int fieldId) {
+    throw new UnsupportedOperationException(
+        "Equality delete vectors are not supported. "
+            + "Override extractEqualityFieldValue() to enable this feature.");
+  }
 
   @Override
   public DataWriter<T> newDataWriter(
