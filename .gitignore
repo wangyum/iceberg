@@ -75,3 +75,6 @@ derby.log
 
 # sdkman
 .sdkmanrc
+
+# Eclipse annotation processing
+**/.factorypath
