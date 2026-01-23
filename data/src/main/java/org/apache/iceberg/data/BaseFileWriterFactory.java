@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.io.UncheckedIOException;
 import java.util.Map;
-import java.util.Set;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionSpec;
@@ -32,7 +31,6 @@ import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.avro.Avro;
-import org.apache.iceberg.deletes.EqualityDeleteVectorWriterAdapter;
 import org.apache.iceberg.deletes.EqualityDeleteWriter;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
 import org.apache.iceberg.encryption.EncryptedOutputFile;
@@ -41,16 +39,10 @@ import org.apache.iceberg.io.DataWriter;
 import org.apache.iceberg.io.FileWriterFactory;
 import org.apache.iceberg.orc.ORC;
 import org.apache.iceberg.parquet.Parquet;
-import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
-import org.apache.iceberg.types.Type;
-import org.apache.iceberg.types.Types;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** A base writer factory to be extended by query engine integrations. */
 public abstract class BaseFileWriterFactory<T> implements FileWriterFactory<T>, Serializable {
-  private static final Logger LOG = LoggerFactory.getLogger(BaseFileWriterFactory.class);
   private final Table table;
   private final FileFormat dataFileFormat;
   private final Schema dataSchema;
@@ -246,128 +238,6 @@ public abstract class BaseFileWriterFactory<T> implements FileWriterFactory<T>, 
   @Override
   public EqualityDeleteWriter<T> newEqualityDeleteWriter(
       EncryptedOutputFile file, PartitionSpec spec, StructLike partition) {
-    Map<String, String> properties = table == null ? ImmutableMap.of() : table.properties();
-
-    // Check if we should use Equality Delete Vector (EDV) format
-    if (shouldUseEqualityDeleteVector(properties)) {
-      return newEqualityDeleteVectorWriter(file, spec, partition);
-    }
-
-    // Traditional path: write to Parquet/Avro/ORC
-    return newTraditionalEqualityDeleteWriter(file, spec, partition);
-  }
-
-  /**
-   * Checks if the equality delete should be written as a bitmap-based delete vector.
-   *
-   * <p>EDV is used when all of the following are true: - Table property {@code
-   * write.delete.equality-vector.enabled} is true - Format version >= 3 (Puffin support required) -
-   * Single equality field (not composite keys) - Field type is LONG (not INT or other types)
-   *
-   * @param properties the table properties
-   * @return true if EDV should be used, false otherwise
-   */
-  private boolean shouldUseEqualityDeleteVector(Map<String, String> properties) {
-    // Check if EDV is enabled
-    boolean edvEnabled =
-        Boolean.parseBoolean(
-            properties.getOrDefault(
-                TableProperties.EQUALITY_DELETE_VECTOR_ENABLED,
-                String.valueOf(TableProperties.EQUALITY_DELETE_VECTOR_ENABLED_DEFAULT)));
-
-    LOG.debug("EDV enabled check: {}", edvEnabled);
-    if (!edvEnabled) {
-      LOG.debug("EDV not enabled, using traditional path");
-      return false;
-    }
-
-    // Check format version >= 3
-    if (table != null) {
-      int formatVersion =
-          ((org.apache.iceberg.BaseTable) table).operations().current().formatVersion();
-      LOG.debug("Format version: {}", formatVersion);
-      if (formatVersion < 3) {
-        LOG.debug("Format version < 3, using traditional path");
-        return false;
-      }
-    } else {
-      LOG.debug("Table is null, cannot check format version");
-    }
-
-    // Check single equality field
-    LOG.debug(
-        "Equality field IDs: {}",
-        equalityFieldIds == null ? "null" : java.util.Arrays.toString(equalityFieldIds));
-    if (equalityFieldIds == null || equalityFieldIds.length != 1) {
-      LOG.debug("Not a single equality field, using traditional path");
-      return false;
-    }
-
-    // Check field type is LONG
-    int equalityFieldId = equalityFieldIds[0];
-    Types.NestedField field = equalityDeleteRowSchema.findField(equalityFieldId);
-    LOG.debug("Equality field: {}, type: {}", field, field == null ? "null" : field.type());
-    if (field == null || field.type().typeId() != Type.TypeID.LONG) {
-      LOG.debug("Field is not LONG type, using traditional path");
-      return false;
-    }
-
-    // Warn if field is not an identifier field (best practice for CDC use cases)
-    // Note: We don't block non-identifier fields - EDV can work on any LONG field
-    // This maintains consistency with equality deletes (which can use any columns)
-    if (table != null) {
-      Set<Integer> identifierFieldIds = table.schema().identifierFieldIds();
-      if (identifierFieldIds == null || !identifierFieldIds.contains(equalityFieldId)) {
-        LOG.warn(
-            "Equality field '{}' is not marked as an identifier field. "
-                + "EDV works best on identifier fields (e.g., CDC _row_id with sequential values). "
-                + "For optimal compression, consider: ALTER TABLE {} SET IDENTIFIER FIELDS {}",
-            field.name(),
-            table.name(),
-            field.name());
-      }
-    }
-
-    LOG.debug("All checks passed, using EDV!");
-    return true;
-  }
-
-  /**
-   * Creates a new Equality Delete Vector writer that stores deleted values as a Roaring bitmap.
-   *
-   * @param file the output file
-   * @param spec the partition spec
-   * @param partition the partition
-   * @return the EDV writer
-   */
-  private EqualityDeleteWriter<T> newEqualityDeleteVectorWriter(
-      EncryptedOutputFile file, PartitionSpec spec, StructLike partition) {
-    Preconditions.checkState(
-        equalityFieldIds != null && equalityFieldIds.length == 1,
-        "EDV requires exactly one equality field");
-
-    int equalityFieldId = equalityFieldIds[0];
-
-    // Use adapter to wrap EDV writer as EqualityDeleteWriter
-    return EqualityDeleteVectorWriterAdapter.wrap(
-        file,
-        spec,
-        partition,
-        file.keyMetadata(),
-        equalityFieldId,
-        this::extractEqualityFieldValue);
-  }
-
-  /**
-   * Creates a traditional equality delete writer (Parquet/Avro/ORC).
-   *
-   * @param file the output file
-   * @param spec the partition spec
-   * @param partition the partition
-   * @return the traditional equality delete writer
-   */
-  private EqualityDeleteWriter<T> newTraditionalEqualityDeleteWriter(
-      EncryptedOutputFile file, PartitionSpec spec, StructLike partition) {
     EncryptionKeyMetadata keyMetadata = file.keyMetadata();
     Map<String, String> properties = table == null ? ImmutableMap.of() : table.properties();
     MetricsConfig metricsConfig =
@@ -437,6 +307,7 @@ public abstract class BaseFileWriterFactory<T> implements FileWriterFactory<T>, 
       throw new UncheckedIOException("Failed to create new equality delete writer", e);
     }
   }
+
 
   @Override
   public PositionDeleteWriter<T> newPositionDeleteWriter(
