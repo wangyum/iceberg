@@ -253,13 +253,32 @@ class SparkFileWriterFactory extends BaseFileWriterFactory<InternalRow> {
    * @return a PartitioningEDVWriter configured for Spark InternalRow
    */
   public org.apache.iceberg.io.PartitioningEDVWriter<InternalRow> newEqualityDeleteVectorWriter(
+  /**
+   * Creates a bitmap delete writer for equality deletes using the unified BitmapDeleteWriter.
+   *
+   * <p>This method provides a simpler integration point by directly using BitmapDeleteWriter
+   * instead of the previous PartitioningEDVWriter wrapper.
+   */
+  public org.apache.iceberg.deletes.BitmapDeleteWriter newEqualityDeleteVectorWriter(
       org.apache.iceberg.io.OutputFileFactory fileFactory) {
-    // Value extractor using the existing extractEqualityFieldValue logic
-    java.util.function.BiFunction<InternalRow, Integer, Long> extractor =
-        this::extractEqualityFieldValue;
-
-    return new org.apache.iceberg.io.PartitioningEDVWriter<>(fileFactory, extractor);
+    return new org.apache.iceberg.deletes.BitmapDeleteWriter(fileFactory);
   }
+
+  /**
+   * Helper method to write an equality delete using the bitmap writer.
+   *
+   * <p>Extracts the LONG value from the row and writes it to the bitmap delete writer.
+   */
+  public void writeEqualityDelete(
+      org.apache.iceberg.deletes.BitmapDeleteWriter writer,
+      InternalRow row,
+      int equalityFieldId,
+      org.apache.iceberg.PartitionSpec spec,
+      org.apache.iceberg.StructLike partition) {
+    Long value = extractEqualityFieldValue(row, equalityFieldId);
+    if (value != null) {
+      writer.deleteEquality(equalityFieldId, value, spec, partition);
+    }
   }
 
   static class Builder {
