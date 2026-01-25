@@ -271,7 +271,8 @@ abstract class MergingSnapshotProducer<ThisT> extends SnapshotProducer<ThisT> {
     if (deleteFiles.add(file)) {
       addedFilesSummary.addedFile(spec, file);
       hasNewDeleteFiles = true;
-      if (ContentFileUtil.isDV(file)) {
+      // Only Position DVs have referencedDataFile - track for concurrency validation
+      if (ContentFileUtil.isPositionDV(file)) {
         newDVRefs.add(file.referencedDataFile());
       }
     }
@@ -283,18 +284,22 @@ abstract class MergingSnapshotProducer<ThisT> extends SnapshotProducer<ThisT> {
       case 1:
         throw new IllegalArgumentException("Deletes are supported in V2 and above");
       case 2:
+        // V2: Position DVs are not allowed, but Equality DVs and traditional deletes are fine
         Preconditions.checkArgument(
-            file.content() == FileContent.EQUALITY_DELETES || !ContentFileUtil.isDV(file),
-            "Must not use DVs for position deletes in V2: %s",
+            !ContentFileUtil.isPositionDV(file),
+            "Must not use Position DVs in V2: %s",
             ContentFileUtil.dvDesc(file));
         break;
       case 3:
       case 4:
-        Preconditions.checkArgument(
-            file.content() == FileContent.EQUALITY_DELETES || ContentFileUtil.isDV(file),
-            "Must use DVs for position deletes in V%s: %s",
-            formatVersion(),
-            file.location());
+        // V3+: Position deletes MUST use DVs, Equality DVs automatic for LONG fields
+        if (file.content() == FileContent.POSITION_DELETES) {
+          Preconditions.checkArgument(
+              ContentFileUtil.isPositionDV(file),
+              "Must use Position DVs for position deletes in V%s: %s",
+              formatVersion(),
+              file.location());
+        }
         break;
       default:
         throw new IllegalArgumentException("Unsupported format version: " + formatVersion());
@@ -845,10 +850,12 @@ abstract class MergingSnapshotProducer<ThisT> extends SnapshotProducer<ThisT> {
 
       for (ManifestEntry<DeleteFile> entry : entries) {
         DeleteFile file = entry.file();
-        if (newSnapshotIds.contains(entry.snapshotId()) && ContentFileUtil.isDV(file)) {
+        // Only validate Position DVs - they're file-scoped and can conflict
+        // Equality DVs are standalone and don't have concurrency issues
+        if (newSnapshotIds.contains(entry.snapshotId()) && ContentFileUtil.isPositionDV(file)) {
           ValidationException.check(
               !newDVRefs.contains(file.referencedDataFile()),
-              "Found concurrently added DV for %s: %s",
+              "Found concurrently added Position DV for %s: %s",
               file.referencedDataFile(),
               ContentFileUtil.dvDesc(file));
         }

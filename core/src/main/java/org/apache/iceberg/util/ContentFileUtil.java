@@ -139,8 +139,47 @@ public class ContentFileUtil {
     return referencedDataFile(deleteFile) != null;
   }
 
+  /**
+   * Checks if a delete file is any type of deletion vector (Position or Equality).
+   *
+   * @param deleteFile the delete file to check
+   * @return true if the file is in PUFFIN format (either Position DV or Equality DV)
+   * @deprecated Use {@link #isPositionDV(DeleteFile)} or {@link #isEqualityDV(DeleteFile)} for
+   *     clarity. This method will be removed in a future release.
+   */
+  @Deprecated
   public static boolean isDV(DeleteFile deleteFile) {
     return deleteFile.format() == FileFormat.PUFFIN;
+  }
+
+  /**
+   * Checks if a delete file is a Position Deletion Vector.
+   *
+   * <p>Position DVs are file-scoped deletion vectors that mark specific row positions for deletion
+   * in a referenced data file. They are stored in PUFFIN format and must have a referencedDataFile
+   * set.
+   *
+   * @param deleteFile the delete file to check
+   * @return true if the file is a Position DV (PUFFIN format + POSITION_DELETES content)
+   */
+  public static boolean isPositionDV(DeleteFile deleteFile) {
+    return deleteFile.format() == FileFormat.PUFFIN
+        && deleteFile.content() == FileContent.POSITION_DELETES;
+  }
+
+  /**
+   * Checks if a delete file is an Equality Deletion Vector.
+   *
+   * <p>Equality DVs are standalone deletion vectors that mark equality field values for deletion
+   * across all data files. They are stored in PUFFIN format and must NOT have a referencedDataFile
+   * (they're not tied to a specific data file).
+   *
+   * @param deleteFile the delete file to check
+   * @return true if the file is an Equality DV (PUFFIN format + EQUALITY_DELETES content)
+   */
+  public static boolean isEqualityDV(DeleteFile deleteFile) {
+    return deleteFile.format() == FileFormat.PUFFIN
+        && deleteFile.content() == FileContent.EQUALITY_DELETES;
   }
 
   public static boolean containsSingleDV(Iterable<DeleteFile> deleteFiles) {
