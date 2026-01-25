@@ -36,6 +36,64 @@ import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Type;
 
+/**
+ * Utility methods for working with content files (data files and delete files).
+ *
+ * <p>This class provides helper methods for:
+ *
+ * <ul>
+ *   <li>Identifying delete file types (Position DVs vs Equality DVs)
+ *   <li>Extracting referenced data file information
+ *   <li>Copying files with specific statistics settings
+ *   <li>Replacing file paths for table migration
+ * </ul>
+ *
+ * <h3>Deletion Vector Type Detection</h3>
+ *
+ * <p>The following methods help identify different types of deletion vectors:
+ *
+ * <ul>
+ *   <li>{@link #isPositionDV(DeleteFile)} - Checks for Position Deletion Vectors (file-scoped,
+ *       PUFFIN format)
+ *   <li>{@link #isEqualityDV(DeleteFile)} - Checks for Equality Deletion Vectors (standalone,
+ *       PUFFIN format)
+ *   <li>{@link #isDV(DeleteFile)} - Deprecated generic check for any deletion vector
+ * </ul>
+ *
+ * <p><b>Key Architectural Distinction:</b>
+ *
+ * <ul>
+ *   <li><b>Position DVs</b>: File-scoped, {@link DeleteFile#referencedDataFile()} != null, marks
+ *       row positions in ONE specific data file
+ *   <li><b>Equality DVs</b>: Standalone, {@link DeleteFile#referencedDataFile()} == null, marks
+ *       equality field values across ALL data files
+ * </ul>
+ *
+ * <p><b>Example Usage:</b>
+ *
+ * <pre>{@code
+ * DeleteFile deleteFile = ...;
+ *
+ * if (ContentFileUtil.isPositionDV(deleteFile)) {
+ *   // Handle Position DV: requires referencedDataFile
+ *   String dataFile = deleteFile.referencedDataFile();  // Not null
+ *   long offset = deleteFile.contentOffset();
+ *   int size = deleteFile.contentSizeInBytes();
+ *   // Read bitmap from Puffin file and apply to specific data file
+ *
+ * } else if (ContentFileUtil.isEqualityDV(deleteFile)) {
+ *   // Handle Equality DV: applies to all data files
+ *   assert deleteFile.referencedDataFile() == null;  // Always null
+ *   long offset = deleteFile.contentOffset();
+ *   int size = deleteFile.contentSizeInBytes();
+ *   // Read bitmap from Puffin file and apply to all data files
+ * }
+ * }</pre>
+ *
+ * @see DeleteFile
+ * @see FileContent
+ * @see FileFormat
+ */
 public class ContentFileUtil {
   private ContentFileUtil() {}
 
