@@ -280,29 +280,49 @@ abstract class MergingSnapshotProducer<ThisT> extends SnapshotProducer<ThisT> {
 
   protected void validateNewDeleteFile(DeleteFile file) {
     Preconditions.checkNotNull(file, "Invalid delete file: null");
-    switch (formatVersion()) {
+
+    int version = formatVersion();
+
+    switch (version) {
       case 1:
         throw new IllegalArgumentException("Deletes are supported in V2 and above");
+
       case 2:
-        // V2: Position DVs are not allowed, but Equality DVs and traditional deletes are fine
+        // V2: All deletion vectors (Position and Equality) are forbidden
         Preconditions.checkArgument(
             !ContentFileUtil.isPositionDV(file),
-            "Must not use Position DVs in V2: %s",
+            "Position Deletion Vectors require format version 3 or higher. "
+                + "Current version: %s, file: %s",
+            version,
             ContentFileUtil.dvDesc(file));
+
+        Preconditions.checkArgument(
+            !ContentFileUtil.isEqualityDV(file),
+            "Equality Deletion Vectors require format version 3 or higher. "
+                + "Current version: %s, file: %s",
+            version,
+            file.location());
         break;
+
       case 3:
       case 4:
-        // V3+: Position deletes MUST use DVs, Equality DVs automatic for LONG fields
+        // V3+: Position deletes MUST use DVs (spec requirement)
         if (file.content() == FileContent.POSITION_DELETES) {
           Preconditions.checkArgument(
               ContentFileUtil.isPositionDV(file),
-              "Must use Position DVs for position deletes in V%s: %s",
-              formatVersion(),
+              "Position deletes must use Deletion Vectors in format version %s or higher. "
+                  + "File: %s",
+              version,
               file.location());
         }
+
+        // V3+: Equality DVs are allowed and automatic for LONG fields
+        // Traditional equality deletes (Parquet/Avro/ORC) are also allowed
+        // No validation needed - both formats are valid in v3+
         break;
+
       default:
-        throw new IllegalArgumentException("Unsupported format version: " + formatVersion());
+        throw new IllegalArgumentException("Unsupported format version: " + version);
     }
   }
 
