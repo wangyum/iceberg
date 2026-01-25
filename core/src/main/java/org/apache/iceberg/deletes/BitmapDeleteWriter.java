@@ -20,9 +20,7 @@ package org.apache.iceberg.deletes;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import org.apache.iceberg.DeleteFile;
@@ -31,13 +29,11 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.DeleteWriteResult;
 import org.apache.iceberg.io.OutputFileFactory;
-import org.apache.iceberg.puffin.Blob;
 import org.apache.iceberg.puffin.BlobMetadata;
 import org.apache.iceberg.puffin.Puffin;
 import org.apache.iceberg.puffin.PuffinWriter;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
-import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
-import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.util.CharSequenceSet;
@@ -96,12 +92,6 @@ import org.apache.iceberg.util.ContentFileUtil;
  */
 public class BitmapDeleteWriter implements Closeable {
 
-  private static final String REFERENCED_DATA_FILE_KEY = "referenced-data-file";
-  private static final String EQUALITY_FIELD_ID_KEY = "equality-field-id";
-  private static final String CARDINALITY_KEY = "cardinality";
-  private static final String VALUE_MIN_KEY = "value-min";
-  private static final String VALUE_MAX_KEY = "value-max";
-
   private final OutputFileFactory fileFactory;
   private final Function<String, PositionDeleteIndex> loadPreviousDeletes;
   private final Map<String, BitmapDeletes> deletesByKey = Maps.newHashMap();
@@ -144,8 +134,9 @@ public class BitmapDeleteWriter implements Closeable {
     PositionDeleteKey key = new PositionDeleteKey(path, spec, partition);
     BitmapDeletes deletes =
         deletesByKey.computeIfAbsent(
-            key.keyId(), k -> new BitmapDeletes(key, new BitmapPositionDeleteIndex()));
-    deletes.positionIndex().delete(position);
+            key.keyId(),
+            k -> new BitmapDeletes(key, new PositionAccumulator(path, new BitmapPositionDeleteIndex())));
+    deletes.accumulator().add(position);
   }
 
   /**
@@ -162,25 +153,12 @@ public class BitmapDeleteWriter implements Closeable {
    */
   public void deleteEquality(
       int equalityFieldId, long value, PartitionSpec spec, StructLike partition) {
-    // Validate: only non-negative values supported
-    if (value < 0) {
-      throw new IllegalArgumentException(
-          String.format(
-              Locale.ROOT,
-              "Equality delete vector only supports non-negative values, got %d for field %d. "
-                  + "Use traditional equality deletes for negative values.",
-              value,
-              equalityFieldId));
-    }
-
     EqualityDeleteKey key = new EqualityDeleteKey(equalityFieldId, spec, partition);
     BitmapDeletes deletes =
         deletesByKey.computeIfAbsent(
-            key.keyId(), k -> new BitmapDeletes(key, new RoaringPositionBitmap()));
-    deletes.bitmap().set(value);
-
-    // Track min/max for scan filtering
-    key.updateBounds(value);
+            key.keyId(),
+            k -> new BitmapDeletes(key, new EqualityAccumulator(equalityFieldId, new RoaringPositionBitmap())));
+    deletes.accumulator().add(value);
   }
 
   /**
@@ -212,29 +190,9 @@ public class BitmapDeleteWriter implements Closeable {
 
       try (PuffinWriter closeableWriter = writer) {
         for (BitmapDeletes deletes : deletesByKey.values()) {
-          DeleteKey key = deletes.key();
-
-          // For position deletes: merge with previous deletes
-          if (key instanceof PositionDeleteKey) {
-            PositionDeleteKey posKey = (PositionDeleteKey) key;
-            PositionDeleteIndex previousDeletes = loadPreviousDeletes.apply(posKey.dataFilePath());
-            if (previousDeletes != null) {
-              deletes.positionIndex().merge(previousDeletes);
-              for (DeleteFile previousDeleteFile : previousDeletes.deleteFiles()) {
-                // only DVs and file-scoped deletes can be discarded from the table state
-                if (ContentFileUtil.isFileScoped(previousDeleteFile)) {
-                  rewrittenDeleteFiles.add(previousDeleteFile);
-                }
-              }
-            }
-            referencedDataFiles.add(posKey.dataFilePath());
-          }
-
-          // Optimize bitmap with run-length encoding before writing
-          // (For equality deletes only - position deletes don't expose RLE)
-          if (key instanceof EqualityDeleteKey) {
-            deletes.bitmap().runLengthEncode();
-          }
+          // Merge logic delegated to accumulator
+          deletes.accumulator().merge(loadPreviousDeletes, rewrittenDeleteFiles);
+          Iterables.addAll(referencedDataFiles, deletes.accumulator().referencedDataFiles());
 
           // Write blob to Puffin
           write(closeableWriter, deletes);
@@ -260,91 +218,18 @@ public class BitmapDeleteWriter implements Closeable {
     DeleteKey key = deletes.key();
     BlobMetadata blobMetadata = blobsByKey.get(key.keyId());
 
-    // Get cardinality based on type
-    long cardinality;
-    if (key instanceof PositionDeleteKey) {
-      cardinality = deletes.positionIndex().cardinality();
-    } else {
-      cardinality = deletes.bitmap().cardinality();
-    }
-
     return key.toDeleteFile(
-        puffinPath, puffinSize, blobMetadata, cardinality, key.spec(), key.partition());
+        puffinPath, puffinSize, blobMetadata, deletes.accumulator().cardinality());
   }
 
   private void write(PuffinWriter writer, BitmapDeletes deletes) {
     DeleteKey key = deletes.key();
-    BlobMetadata blobMetadata = writer.write(toBlob(deletes));
+    BlobMetadata blobMetadata = writer.write(deletes.accumulator().toBlob());
     blobsByKey.put(key.keyId(), blobMetadata);
   }
 
   private PuffinWriter newWriter() {
     return Puffin.write(fileFactory.newOutputFile()).createdBy(IcebergBuild.fullVersion()).build();
-  }
-
-  private Blob toBlob(BitmapDeletes deletes) {
-    DeleteKey key = deletes.key();
-    ByteBuffer buffer;
-    long cardinality;
-
-    // Serialize based on delete type
-    if (key instanceof PositionDeleteKey) {
-      // Position deletes: serialize PositionDeleteIndex
-      PositionDeleteIndex index = deletes.positionIndex();
-      buffer = index.serialize();
-      cardinality = index.cardinality();
-    } else if (key instanceof EqualityDeleteKey) {
-      // Equality deletes: serialize RoaringPositionBitmap
-      RoaringPositionBitmap bitmap = deletes.bitmap();
-
-      long sizeInBytes = bitmap.serializedSizeInBytes();
-      if (sizeInBytes > Integer.MAX_VALUE) {
-        throw new IllegalStateException(
-            String.format(
-                Locale.ROOT,
-                "Bitmap size %d bytes exceeds maximum ByteBuffer size %d. "
-                    + "Consider splitting the delete set or using traditional deletes.",
-                sizeInBytes,
-                Integer.MAX_VALUE));
-      }
-
-      int size = (int) sizeInBytes;
-      buffer = ByteBuffer.allocate(size);
-      buffer.order(java.nio.ByteOrder.LITTLE_ENDIAN);
-      bitmap.serialize(buffer);
-      buffer.flip();
-      cardinality = bitmap.cardinality();
-    } else {
-      throw new IllegalStateException("Unknown delete key type: " + key.getClass());
-    }
-
-    // Build blob metadata based on key type
-    Map<String, String> properties = Maps.newHashMap();
-    properties.put(CARDINALITY_KEY, String.valueOf(cardinality));
-
-    List<Integer> inputFields;
-    if (key instanceof PositionDeleteKey) {
-      PositionDeleteKey posKey = (PositionDeleteKey) key;
-      properties.put(REFERENCED_DATA_FILE_KEY, posKey.dataFilePath());
-      inputFields = ImmutableList.of();
-    } else if (key instanceof EqualityDeleteKey) {
-      EqualityDeleteKey eqKey = (EqualityDeleteKey) key;
-      properties.put(EQUALITY_FIELD_ID_KEY, String.valueOf(eqKey.equalityFieldId()));
-      properties.put(VALUE_MIN_KEY, String.valueOf(eqKey.minValue()));
-      properties.put(VALUE_MAX_KEY, String.valueOf(eqKey.maxValue()));
-      inputFields = ImmutableList.of(eqKey.equalityFieldId());
-    } else {
-      throw new IllegalStateException("Unknown delete key type: " + key.getClass());
-    }
-
-    return new Blob(
-        key.blobType(),
-        inputFields,
-        -1 /* snapshot ID is inherited */,
-        -1 /* sequence number is inherited */,
-        buffer,
-        null /* uncompressed */,
-        ImmutableMap.copyOf(properties));
   }
 
   /**
@@ -355,39 +240,19 @@ public class BitmapDeleteWriter implements Closeable {
    */
   private static class BitmapDeletes {
     private final DeleteKey key;
-    private final Object bitmapOrIndex; // PositionDeleteIndex or RoaringPositionBitmap
+    private final BitmapAccumulator accumulator;
 
-    private BitmapDeletes(DeleteKey key, Object bitmapOrIndex) {
+    private BitmapDeletes(DeleteKey key, BitmapAccumulator accumulator) {
       this.key = key;
-      this.bitmapOrIndex = bitmapOrIndex;
+      this.accumulator = accumulator;
     }
 
     public DeleteKey key() {
       return key;
     }
 
-    /**
-     * Returns the bitmap for this delete set.
-     *
-     * <p>Only valid for equality deletes. For position deletes, use {@link #positionIndex()}.
-     */
-    public RoaringPositionBitmap bitmap() {
-      Preconditions.checkState(
-          bitmapOrIndex instanceof RoaringPositionBitmap,
-          "Bitmap only available for equality deletes, use positionIndex() for position deletes");
-      return (RoaringPositionBitmap) bitmapOrIndex;
-    }
-
-    /**
-     * Returns the PositionDeleteIndex for position deletes.
-     *
-     * <p>Only valid for position deletes.
-     */
-    public PositionDeleteIndex positionIndex() {
-      Preconditions.checkState(
-          bitmapOrIndex instanceof PositionDeleteIndex,
-          "Position index only available for position deletes");
-      return (PositionDeleteIndex) bitmapOrIndex;
+    public BitmapAccumulator accumulator() {
+      return accumulator;
     }
   }
 }

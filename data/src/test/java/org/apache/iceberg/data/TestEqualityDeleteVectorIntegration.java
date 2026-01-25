@@ -64,7 +64,7 @@ public class TestEqualityDeleteVectorIntegration {
 
   @BeforeEach
   public void setupTable() throws IOException {
-    // Create table with format version 3 (required for Puffin support)
+    // Create table with format version 3 (EDV automatic for v3 + LONG fields)
     this.table =
         TestTables.create(
             tableDir,
@@ -72,9 +72,7 @@ public class TestEqualityDeleteVectorIntegration {
             SCHEMA,
             PartitionSpec.unpartitioned(),
             3,
-            ImmutableMap.of(
-                TableProperties.EQUALITY_DELETE_VECTOR_ENABLED, "true",
-                TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
+            ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
 
     // Create test records
     this.records = Lists.newArrayList();

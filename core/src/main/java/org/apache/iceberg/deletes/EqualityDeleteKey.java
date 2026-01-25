@@ -25,7 +25,6 @@ import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.puffin.BlobMetadata;
-import org.apache.iceberg.puffin.StandardBlobTypes;
 import org.apache.iceberg.util.StructLikeUtil;
 
 /**
@@ -37,8 +36,6 @@ public class EqualityDeleteKey implements DeleteKey {
   private final int equalityFieldId;
   private final PartitionSpec spec;
   private final StructLike partition;
-  private long minValue = Long.MAX_VALUE;
-  private long maxValue = Long.MIN_VALUE;
 
   public EqualityDeleteKey(int equalityFieldId, PartitionSpec spec, StructLike partition) {
     this.equalityFieldId = equalityFieldId;
@@ -50,37 +47,14 @@ public class EqualityDeleteKey implements DeleteKey {
     return equalityFieldId;
   }
 
-  public long minValue() {
-    return minValue;
-  }
-
-  public long maxValue() {
-    return maxValue;
-  }
-
-  public void updateBounds(long value) {
-    minValue = Math.min(minValue, value);
-    maxValue = Math.max(maxValue, value);
-  }
-
   @Override
   public String keyId() {
     return "field:" + equalityFieldId;
   }
 
   @Override
-  public String blobType() {
-    return StandardBlobTypes.EDV_V1;
-  }
-
-  @Override
   public DeleteFile toDeleteFile(
-      String puffinPath,
-      long puffinSize,
-      BlobMetadata blobMetadata,
-      long cardinality,
-      PartitionSpec spec,
-      StructLike partition) {
+      String puffinPath, long puffinSize, BlobMetadata blobMetadata, long cardinality) {
     return FileMetadata.deleteFileBuilder(spec)
         .ofEqualityDeletes(equalityFieldId)
         .withFormat(FileFormat.PUFFIN)
@@ -91,16 +65,6 @@ public class EqualityDeleteKey implements DeleteKey {
         .withContentSizeInBytes(blobMetadata.length())
         .withRecordCount(cardinality)
         .build();
-  }
-
-  @Override
-  public PartitionSpec spec() {
-    return spec;
-  }
-
-  @Override
-  public StructLike partition() {
-    return partition;
   }
 
   @Override

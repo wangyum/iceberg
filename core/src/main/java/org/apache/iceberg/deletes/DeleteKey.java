@@ -19,15 +19,13 @@
 package org.apache.iceberg.deletes;
 
 import org.apache.iceberg.DeleteFile;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.StructLike;
 import org.apache.iceberg.puffin.BlobMetadata;
 
 /**
  * Abstraction for different types of bitmap-based delete keys.
  *
  * <p>This allows {@link BitmapDeleteWriter} to handle both position deletes (keyed by data file
- * path) and equality deletes (keyed by equality field ID) with the same infrastructure.
+ * path) and equality deletes (keyed by equality field ID) with the same core logic.
  *
  * <p>Implementations:
  *
@@ -37,21 +35,8 @@ import org.apache.iceberg.puffin.BlobMetadata;
  * </ul>
  */
 public interface DeleteKey {
-  /**
-   * Returns a unique string identifier for this delete key.
-   *
-   * <p>For position deletes: the data file path For equality deletes: "field:" + field ID
-   *
-   * @return unique key identifier
-   */
-  String keyId();
 
-  /**
-   * Returns the blob type for this delete key.
-   *
-   * @return blob type (deletion-vector-v1 or equality-delete-vector-v1)
-   */
-  String blobType();
+  String keyId();
 
   /**
    * Creates a DeleteFile metadata entry from the written blob.
@@ -60,29 +45,8 @@ public interface DeleteKey {
    * @param puffinSize the Puffin file size
    * @param blobMetadata the blob metadata
    * @param cardinality the number of deleted values in the bitmap
-   * @param spec the partition spec
-   * @param partition the partition
    * @return DeleteFile metadata
    */
   DeleteFile toDeleteFile(
-      String puffinPath,
-      long puffinSize,
-      BlobMetadata blobMetadata,
-      long cardinality,
-      PartitionSpec spec,
-      StructLike partition);
-
-  /**
-   * Returns the partition spec for this delete.
-   *
-   * @return partition spec
-   */
-  PartitionSpec spec();
-
-  /**
-   * Returns the partition for this delete.
-   *
-   * @return partition
-   */
-  StructLike partition();
+      String puffinPath, long puffinSize, BlobMetadata blobMetadata, long cardinality);
 }

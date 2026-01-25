@@ -96,8 +96,7 @@ public class TestEqualityDeleteVectorCompaction {
     DataFile dataFile = writeDataFile(records);
     table.newAppend().appendFile(dataFile).commit();
 
-    // Enable EDV
-    table.updateProperties().set(TableProperties.EQUALITY_DELETE_VECTOR_ENABLED, "true").commit();
+    // EDV automatically enabled for v3 + LONG (no property needed)
 
     // Write multiple small EDV files (simulating multiple MERGE operations)
     DeleteFile edv1 = writeEqualityDeleteVector(new long[] {1L, 2L, 3L});
@@ -132,67 +131,47 @@ public class TestEqualityDeleteVectorCompaction {
 
   @Test
   public void testRewriteWithEDVDisabledProducesParquet() throws IOException {
-    // Verify that if EDV is disabled during rewrite, it produces Parquet
+    // Verify that v3 table with LONG field automatically uses EDV (no property needed)
 
-    // Start with EDV enabled
-    table.updateProperties().set(TableProperties.EQUALITY_DELETE_VECTOR_ENABLED, "true").commit();
+    // Write EDV file - should use PUFFIN automatically for v3 + LONG
+    DeleteFile edvFile1 = writeEqualityDeleteVector(new long[] {1L, 2L, 3L});
+    assertThat(edvFile1.format()).isEqualTo(FileFormat.PUFFIN);
 
-    // Write EDV file
-    DeleteFile originalEDV = writeEqualityDeleteVector(new long[] {1L, 2L, 3L});
-    assertThat(originalEDV.format()).isEqualTo(FileFormat.PUFFIN);
+    // Write another EDV file - still uses PUFFIN
+    DeleteFile edvFile2 = writeEqualityDeleteVector(new long[] {4L, 5L, 6L});
+    assertThat(edvFile2.format()).isEqualTo(FileFormat.PUFFIN);
 
-    // Disable EDV (simulating policy change)
-    table
-        .updateProperties()
-        .set(TableProperties.EQUALITY_DELETE_VECTOR_ENABLED, "false")
-        .commit();
-
-    // Rewrite the delete file with EDV disabled
-    DeleteFile rewrittenParquet = writeEqualityDeleteVector(new long[] {1L, 2L, 3L});
-
-    // Verify it's now Parquet (not EDV)
-    assertThat(rewrittenParquet.format()).isEqualTo(FileFormat.PARQUET);
-
-    System.out.println("Original EDV size: " + originalEDV.fileSizeInBytes() + " bytes");
-    System.out.println("Rewritten Parquet size: " + rewrittenParquet.fileSizeInBytes() + " bytes");
+    System.out.println("V3 table automatically uses EDV for LONG fields:");
+    System.out.println("  EDV file 1 size: " + edvFile1.fileSizeInBytes() + " bytes");
+    System.out.println("  EDV file 2 size: " + edvFile2.fileSizeInBytes() + " bytes");
   }
 
   @Test
-  public void testFileWriterFactoryRespectsTableProperty() throws IOException {
-    // This test verifies that the FileWriterFactory checks table properties
-    // each time a new writer is created
+  public void testFileWriterFactoryAutomaticDetection() throws IOException {
+    // This test verifies that the FileWriterFactory automatically uses EDV
+    // for v3 tables with LONG equality fields (no property needed)
 
     DataFile dataFile = writeDataFile(records);
     table.newAppend().appendFile(dataFile).commit();
 
-    // Start with EDV disabled
-    table
-        .updateProperties()
-        .set(TableProperties.EQUALITY_DELETE_VECTOR_ENABLED, "false")
-        .commit();
+    // All writes should automatically use PUFFIN (EDV) since:
+    // - Table is v3
+    // - Equality field is LONG
+    // - Single equality field
 
-    DeleteFile parquetDelete = writeEqualityDeleteVector(new long[] {1L});
-    assertThat(parquetDelete.format()).isEqualTo(FileFormat.PARQUET);
+    DeleteFile edvDelete1 = writeEqualityDeleteVector(new long[] {1L});
+    assertThat(edvDelete1.format()).isEqualTo(FileFormat.PUFFIN);
 
-    // Enable EDV
-    table.updateProperties().set(TableProperties.EQUALITY_DELETE_VECTOR_ENABLED, "true").commit();
+    DeleteFile edvDelete2 = writeEqualityDeleteVector(new long[] {2L});
+    assertThat(edvDelete2.format()).isEqualTo(FileFormat.PUFFIN);
 
-    DeleteFile edvDelete = writeEqualityDeleteVector(new long[] {2L});
-    assertThat(edvDelete.format()).isEqualTo(FileFormat.PUFFIN);
+    DeleteFile edvDelete3 = writeEqualityDeleteVector(new long[] {3L});
+    assertThat(edvDelete3.format()).isEqualTo(FileFormat.PUFFIN);
 
-    // Disable again
-    table
-        .updateProperties()
-        .set(TableProperties.EQUALITY_DELETE_VECTOR_ENABLED, "false")
-        .commit();
-
-    DeleteFile parquetDelete2 = writeEqualityDeleteVector(new long[] {3L});
-    assertThat(parquetDelete2.format()).isEqualTo(FileFormat.PARQUET);
-
-    System.out.println("Property changes are respected by FileWriterFactory:");
-    System.out.println("  disabled -> PARQUET: " + parquetDelete.format());
-    System.out.println("  enabled -> PUFFIN: " + edvDelete.format());
-    System.out.println("  disabled -> PARQUET: " + parquetDelete2.format());
+    System.out.println("FileWriterFactory automatically uses EDV for v3 + LONG:");
+    System.out.println("  delete 1 -> PUFFIN: " + edvDelete1.format());
+    System.out.println("  delete 2 -> PUFFIN: " + edvDelete2.format());
+    System.out.println("  delete 3 -> PUFFIN: " + edvDelete3.format());
   }
 
   private DataFile writeDataFile(List<Record> recordsToWrite) throws IOException {

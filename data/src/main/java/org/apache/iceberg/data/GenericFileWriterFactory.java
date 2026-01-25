@@ -24,13 +24,22 @@ import static org.apache.iceberg.TableProperties.DELETE_DEFAULT_FILE_FORMAT;
 
 import java.util.Map;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableUtil;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.avro.Avro;
 import org.apache.iceberg.data.avro.DataWriter;
 import org.apache.iceberg.data.orc.GenericOrcWriter;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
+import org.apache.iceberg.deletes.BitmapDeleteWriter;
+import org.apache.iceberg.deletes.EqualityDeleteWriter;
+import org.apache.iceberg.encryption.EncryptedOutputFile;
+import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.orc.ORC;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
@@ -188,6 +197,162 @@ public class GenericFileWriterFactory extends BaseFileWriterFactory<Record> {
     // Extract the value from the record
     Object value = row.get(fieldIndex, Long.class);
     return (Long) value;
+  }
+
+  @Override
+  public EqualityDeleteWriter<Record> newEqualityDeleteWriter(
+      EncryptedOutputFile file, PartitionSpec spec, StructLike partition) {
+    // Automatic EDV detection (like Position DVs)
+    // Use EDV if: v3+ table AND single LONG equality field
+    Table currentTable = table();
+
+    if (currentTable != null && TableUtil.formatVersion(currentTable) >= 3 && canUseEqualityDV()) {
+      // Use Equality Delete Vector (Puffin bitmap format) - automatic in v3+
+      return new GenericEDVWriter(file, spec, partition, currentTable, equalityFieldIds());
+    } else {
+      // Use standard Parquet/Avro/ORC equality delete writer
+      // (v1/v2 tables, or non-LONG fields, or multiple equality fields)
+      return super.newEqualityDeleteWriter(file, spec, partition);
+    }
+  }
+
+  /**
+   * Check if Equality Delete Vectors can be used.
+   *
+   * <p>EDV requirements:
+   * <ul>
+   *   <li>Exactly one equality field (composite keys not supported)</li>
+   *   <li>Field type must be LONG (bitmaps require integer keys)</li>
+   * </ul>
+   *
+   * @return true if EDV can be used, false to fall back to Parquet
+   */
+  private boolean canUseEqualityDV() {
+    int[] fieldIds = equalityFieldIds();
+    Schema deleteSchema = equalityDeleteRowSchema();
+
+    // Must have exactly one equality field
+    if (fieldIds == null || fieldIds.length != 1 || deleteSchema == null) {
+      return false;
+    }
+
+    // Field must be LONG type
+    int fieldId = fieldIds[0];
+    Types.NestedField field = deleteSchema.findField(fieldId);
+    if (field == null) {
+      return false;
+    }
+
+    return field.type().typeId() == Type.TypeID.LONG;
+  }
+
+  // Protected accessor for table field
+  protected Table table() {
+    // Access via reflection to get around private field limitation
+    try {
+      java.lang.reflect.Field tableField = BaseFileWriterFactory.class.getDeclaredField("table");
+      tableField.setAccessible(true);
+      return (Table) tableField.get(this);
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to access table field", e);
+    }
+  }
+
+  // Protected accessor for equalityFieldIds field
+  protected int[] equalityFieldIds() {
+    try {
+      java.lang.reflect.Field field = BaseFileWriterFactory.class.getDeclaredField("equalityFieldIds");
+      field.setAccessible(true);
+      return (int[]) field.get(this);
+    } catch (Exception e) {
+      throw new RuntimeException("Failed to access equalityFieldIds field", e);
+    }
+  }
+
+  public org.apache.iceberg.deletes.BitmapDeleteWriter newEqualityDeleteVectorWriter(
+      org.apache.iceberg.io.OutputFileFactory fileFactory) {
+    return new org.apache.iceberg.deletes.BitmapDeleteWriter(fileFactory);
+  }
+
+  public void writeEqualityDelete(
+      org.apache.iceberg.deletes.BitmapDeleteWriter writer,
+      Record row,
+      int equalityFieldId,
+      org.apache.iceberg.PartitionSpec spec,
+      org.apache.iceberg.StructLike partition) {
+    Long value = extractEqualityFieldValue(row, equalityFieldId);
+    if (value != null) {
+      // Validate non-negative constraint for Equality DVs
+      if (value < 0) {
+        throw new IllegalArgumentException(
+            String.format(
+                java.util.Locale.ROOT,
+                "Equality delete vectors require non-negative LONG values. "
+                    + "Got value %d for field ID %d. "
+                    + "Use Parquet equality deletes for negative values or disable EDV.",
+                value,
+                equalityFieldId));
+      }
+      writer.deleteEquality(equalityFieldId, value, spec, partition);
+    }
+  }
+
+  /**
+   * Wrapper that adapts BitmapDeleteWriter to the EqualityDeleteWriter interface.
+   *
+   * <p>This allows the bitmap-based equality delete vector writer to be used through the standard
+   * FileWriterFactory API.
+   */
+  private class GenericEDVWriter extends EqualityDeleteWriter<Record> {
+    private final BitmapDeleteWriter bitmapWriter;
+    private final PartitionSpec spec;
+    private final StructLike partition;
+    private final int equalityFieldId;
+
+    GenericEDVWriter(EncryptedOutputFile file, PartitionSpec spec, StructLike partition, Table table, int[] equalityFieldIds) {
+      super(null, FileFormat.PUFFIN, file.encryptingOutputFile().location(), spec, partition, file.keyMetadata(), null, equalityFieldIds);
+      OutputFileFactory fileFactory =
+          OutputFileFactory.builderFor(table, 1, 1)
+              .format(FileFormat.PUFFIN)
+              .build();
+      this.bitmapWriter = new BitmapDeleteWriter(fileFactory);
+      this.spec = spec;
+      this.partition = partition;
+      // Get the single equality field ID
+      if (equalityFieldIds == null || equalityFieldIds.length != 1) {
+        throw new IllegalStateException(
+            "EDV requires exactly one equality field ID, got: "
+                + (equalityFieldIds == null ? 0 : equalityFieldIds.length));
+      }
+      this.equalityFieldId = equalityFieldIds[0];
+    }
+
+    @Override
+    public void write(Record row) {
+      writeEqualityDelete(bitmapWriter, row, equalityFieldId, spec, partition);
+    }
+
+    @Override
+    public long length() {
+      // BitmapDeleteWriter doesn't have length() yet, return 0 for now
+      return 0;
+    }
+
+    @Override
+    public org.apache.iceberg.DeleteFile toDeleteFile() {
+      // Close the bitmap writer and get the delete file
+      try {
+        bitmapWriter.close();
+      } catch (java.io.IOException e) {
+        throw new java.io.UncheckedIOException(e);
+      }
+      return bitmapWriter.result().deleteFiles().iterator().next();
+    }
+
+    @Override
+    public void close() throws java.io.IOException {
+      bitmapWriter.close();
+    }
   }
 
   public static class Builder {

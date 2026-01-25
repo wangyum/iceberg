@@ -25,7 +25,6 @@ import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.puffin.BlobMetadata;
-import org.apache.iceberg.puffin.StandardBlobTypes;
 import org.apache.iceberg.util.StructLikeUtil;
 
 /**
@@ -54,18 +53,8 @@ public class PositionDeleteKey implements DeleteKey {
   }
 
   @Override
-  public String blobType() {
-    return StandardBlobTypes.DV_V1;
-  }
-
-  @Override
   public DeleteFile toDeleteFile(
-      String puffinPath,
-      long puffinSize,
-      BlobMetadata blobMetadata,
-      long cardinality,
-      PartitionSpec spec,
-      StructLike partition) {
+      String puffinPath, long puffinSize, BlobMetadata blobMetadata, long cardinality) {
     return FileMetadata.deleteFileBuilder(spec)
         .ofPositionDeletes()
         .withFormat(FileFormat.PUFFIN)
@@ -77,16 +66,6 @@ public class PositionDeleteKey implements DeleteKey {
         .withContentSizeInBytes(blobMetadata.length())
         .withRecordCount(cardinality)
         .build();
-  }
-
-  @Override
-  public PartitionSpec spec() {
-    return spec;
-  }
-
-  @Override
-  public StructLike partition() {
-    return partition;
   }
 
   @Override
