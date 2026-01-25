@@ -46,6 +46,15 @@ import org.apache.iceberg.util.CharSequenceSet;
 import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.iceberg.util.StructLikeUtil;
 
+/**
+ * Legacy writer for Position Deletion Vectors.
+ *
+ * @deprecated This class has been replaced by {@link BitmapDeleteWriter} which provides a unified
+ *     implementation for both Position and Equality Deletion Vectors. Use {@link
+ *     BitmapDeleteWriter} instead. This class will be removed in a future major release.
+ * @see BitmapDeleteWriter
+ */
+@Deprecated(since = "1.7.0", forRemoval = true)
 public class BaseDVFileWriter implements DVFileWriter {
 
   private static final String REFERENCED_DATA_FILE_KEY = "referenced-data-file";

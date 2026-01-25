@@ -30,12 +30,18 @@ import org.apache.iceberg.io.DeleteWriteResult;
 import org.apache.iceberg.io.FileAppender;
 
 /**
- * Adapter that wraps {@link EqualityDeleteVectorWriter} to make it compatible with {@link
+ * Legacy adapter that wraps {@link EqualityDeleteVectorWriter} to make it compatible with {@link
  * EqualityDeleteWriter}.
  *
  * <p>This allows EDV writers to be used wherever EqualityDeleteWriter is expected, enabling
  * transparent use of bitmap-based equality deletes.
+ *
+ * @deprecated This adapter is no longer needed. Use the unified adapter in {@link
+ *     org.apache.iceberg.data.GenericFileWriterFactory.GenericEDVWriter} instead. This class will
+ *     be removed in a future major release.
+ * @see org.apache.iceberg.data.GenericFileWriterFactory
  */
+@Deprecated(since = "1.7.0", forRemoval = true)
 public class EqualityDeleteVectorWriterAdapter<T> extends EqualityDeleteWriter<T> {
 
   private final EqualityDeleteVectorWriter<T> delegate;

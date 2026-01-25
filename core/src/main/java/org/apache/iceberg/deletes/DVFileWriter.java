@@ -24,7 +24,15 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.DeleteWriteResult;
 
-/** A deletion vector file writer. */
+/**
+ * Legacy interface for deletion vector file writers.
+ *
+ * @deprecated This interface is no longer used. {@link BitmapDeleteWriter} provides deletion vector
+ *     writing without implementing this interface. This interface will be removed in a future major
+ *     release.
+ * @see BitmapDeleteWriter
+ */
+@Deprecated(since = "1.7.0", forRemoval = true)
 public interface DVFileWriter extends Closeable {
   /**
    * Marks a position in a given data file as deleted.
