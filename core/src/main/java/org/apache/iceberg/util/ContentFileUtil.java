@@ -57,6 +57,10 @@ import org.apache.iceberg.types.Type;
  *       PUFFIN format)
  *   <li>{@link #isEqualityDV(DeleteFile)} - Checks for Equality Deletion Vectors (standalone,
  *       PUFFIN format)
+ *   <li>{@link #isDVType(DeleteFile, FileContent)} - Convenience method to check if a file matches
+ *       a specific DV type
+ *   <li>{@link #dvTypeDescription(DeleteFile)} - Returns a human-readable description of the DV
+ *       type
  *   <li>{@link #isDV(DeleteFile)} - Deprecated generic check for any deletion vector
  * </ul>
  *
@@ -242,6 +246,57 @@ public class ContentFileUtil {
 
   public static boolean containsSingleDV(Iterable<DeleteFile> deleteFiles) {
     return Iterables.size(deleteFiles) == 1 && Iterables.all(deleteFiles, ContentFileUtil::isDV);
+  }
+
+  /**
+   * Returns a human-readable description of the DV type.
+   *
+   * <p>This method provides a quick way to get a string description of a delete file's type,
+   * useful for logging, debugging, and error messages.
+   *
+   * @param deleteFile the delete file to describe
+   * @return a description string: "Position DV", "Equality DV", "Unknown DV type", or "Not a DV"
+   */
+  public static String dvTypeDescription(DeleteFile deleteFile) {
+    if (isPositionDV(deleteFile)) {
+      return "Position DV";
+    }
+    if (isEqualityDV(deleteFile)) {
+      return "Equality DV";
+    }
+    if (deleteFile.format() == FileFormat.PUFFIN) {
+      return "Unknown DV type";
+    }
+    return "Not a DV";
+  }
+
+  /**
+   * Checks if a delete file matches the expected DV type.
+   *
+   * <p>This is a convenience method that combines format and content checks in a single call,
+   * useful when you need to validate that a file is both a DV and of a specific type.
+   *
+   * <p>Example usage:
+   *
+   * <pre>{@code
+   * // Validate that a file is specifically a Position DV
+   * if (ContentFileUtil.isDVType(deleteFile, FileContent.POSITION_DELETES)) {
+   *   // Handle position DV
+   * }
+   *
+   * // Validate that a file is specifically an Equality DV
+   * if (ContentFileUtil.isDVType(deleteFile, FileContent.EQUALITY_DELETES)) {
+   *   // Handle equality DV
+   * }
+   * }</pre>
+   *
+   * @param deleteFile the delete file to check
+   * @param expectedContent the expected content type (POSITION_DELETES or EQUALITY_DELETES)
+   * @return true if the file is in PUFFIN format AND has the expected content type
+   */
+  public static boolean isDVType(DeleteFile deleteFile, FileContent expectedContent) {
+    return deleteFile.format() == FileFormat.PUFFIN
+        && deleteFile.content() == expectedContent;
   }
 
   public static String dvDesc(DeleteFile deleteFile) {
