@@ -22,8 +22,7 @@ import java.io.IOException;
 import java.util.function.Function;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.StructLike;
-import org.apache.iceberg.deletes.BaseDVFileWriter;
-import org.apache.iceberg.deletes.DVFileWriter;
+import org.apache.iceberg.deletes.BitmapDeleteWriter;
 import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.deletes.PositionDeleteIndex;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
@@ -35,18 +34,18 @@ import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 public class PartitioningDVWriter<T>
     implements PartitioningWriter<PositionDelete<T>, DeleteWriteResult> {
 
-  private final DVFileWriter writer;
+  private final BitmapDeleteWriter writer;
   private DeleteWriteResult result;
 
   public PartitioningDVWriter(
       OutputFileFactory fileFactory,
       Function<CharSequence, PositionDeleteIndex> loadPreviousDeletes) {
-    this.writer = new BaseDVFileWriter(fileFactory, loadPreviousDeletes::apply);
+    this.writer = new BitmapDeleteWriter(fileFactory, loadPreviousDeletes::apply);
   }
 
   @Override
   public void write(PositionDelete<T> row, PartitionSpec spec, StructLike partition) {
-    writer.delete(row.path().toString(), row.pos(), spec, partition);
+    writer.deletePosition(row.path().toString(), row.pos(), spec, partition);
   }
 
   @Override

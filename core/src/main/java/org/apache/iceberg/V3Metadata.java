@@ -498,13 +498,19 @@ class V3Metadata {
             return null;
           }
         case 18:
-          if (wrapped.content() == FileContent.POSITION_DELETES) {
+          // contentOffset is used for both position delete vectors and equality delete vectors
+          // (EDV)
+          if (wrapped.content() == FileContent.POSITION_DELETES
+              || wrapped.content() == FileContent.EQUALITY_DELETES) {
             return ((DeleteFile) wrapped).contentOffset();
           } else {
             return null;
           }
         case 19:
-          if (wrapped.content() == FileContent.POSITION_DELETES) {
+          // contentSizeInBytes is used for both position delete vectors and equality delete vectors
+          // (EDV)
+          if (wrapped.content() == FileContent.POSITION_DELETES
+              || wrapped.content() == FileContent.EQUALITY_DELETES) {
             return ((DeleteFile) wrapped).contentSizeInBytes();
           } else {
             return null;

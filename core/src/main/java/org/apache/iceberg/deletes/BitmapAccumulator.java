@@ -18,29 +18,21 @@
  */
 package org.apache.iceberg.deletes;
 
-import java.io.Closeable;
+import java.util.List;
+import java.util.function.Function;
 import org.apache.iceberg.DeleteFile;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.StructLike;
-import org.apache.iceberg.io.DeleteWriteResult;
+import org.apache.iceberg.puffin.Blob;
 
-/** A deletion vector file writer. */
-public interface DVFileWriter extends Closeable {
-  /**
-   * Marks a position in a given data file as deleted.
-   *
-   * @param path the data file path
-   * @param pos the data file position
-   * @param spec the data file partition spec
-   * @param partition the data file partition
-   */
-  void delete(String path, long pos, PartitionSpec spec, StructLike partition);
+interface BitmapAccumulator {
+  void add(long value);
 
-  /**
-   * Returns a result that contains information about written {@link DeleteFile}s. The result is
-   * valid only after the writer is closed.
-   *
-   * @return the writer result
-   */
-  DeleteWriteResult result();
+  Blob toBlob();
+
+  long cardinality();
+
+  void merge(
+      Function<String, PositionDeleteIndex> loadPreviousDeletes,
+      List<DeleteFile> rewrittenDeleteFiles);
+
+  Iterable<CharSequence> referencedDataFiles();
 }

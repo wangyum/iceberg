@@ -143,6 +143,69 @@ public class FlinkFileWriterFactory extends BaseFileWriterFactory<RowData> imple
     return equalityDeleteFlinkType;
   }
 
+  @Override
+  protected Long extractEqualityFieldValue(RowData row, int fieldId) {
+    // Find field index in equality delete schema
+    Schema schema = equalityDeleteRowSchema();
+    int fieldIndex = -1;
+    for (int i = 0; i < schema.columns().size(); i++) {
+      if (schema.columns().get(i).fieldId() == fieldId) {
+        fieldIndex = i;
+        break;
+      }
+    }
+
+    if (fieldIndex < 0) {
+      throw new IllegalArgumentException(
+          String.format(java.util.Locale.ROOT, 
+              "Field ID %d not found in equality delete schema %s", fieldId, schema));
+    }
+
+    // Extract LONG value from Flink RowData
+    if (row.isNullAt(fieldIndex)) {
+      return null;
+    }
+
+    return row.getLong(fieldIndex);
+
+  /**
+   * Creates an equality delete vector writer following the Position DV pattern.
+   *
+   * <p>This method provides Flink-specific value extraction for use with {@link
+   * org.apache.iceberg.io.PartitioningEDVWriter}.
+   *
+   * @param fileFactory factory for creating output files
+   * @return a PartitioningEDVWriter configured for Flink RowData
+   */
+  /**
+   * Creates a bitmap delete writer for equality deletes using the unified BitmapDeleteWriter.
+   *
+   * <p>This method provides a simpler integration point by directly using BitmapDeleteWriter
+   * instead of the previous PartitioningEDVWriter wrapper.
+   */
+  public org.apache.iceberg.deletes.BitmapDeleteWriter newEqualityDeleteVectorWriter(
+      org.apache.iceberg.io.OutputFileFactory fileFactory) {
+    return new org.apache.iceberg.deletes.BitmapDeleteWriter(fileFactory);
+  }
+
+  /**
+   * Helper method to write an equality delete using the bitmap writer.
+   *
+   * <p>Extracts the LONG value from the row and writes it to the bitmap delete writer.
+   */
+  public void writeEqualityDelete(
+      org.apache.iceberg.deletes.BitmapDeleteWriter writer,
+      RowData row,
+      int equalityFieldId,
+      org.apache.iceberg.PartitionSpec spec,
+      org.apache.iceberg.StructLike partition) {
+    Long value = extractEqualityFieldValue(row, equalityFieldId);
+    if (value != null) {
+      writer.deleteEquality(equalityFieldId, value, spec, partition);
+    }
+  }
+  }
+
   public static class Builder {
     private final Table table;
     private FileFormat dataFileFormat;

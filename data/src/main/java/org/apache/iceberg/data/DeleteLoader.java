@@ -18,10 +18,11 @@
  */
 package org.apache.iceberg.data;
 
+import java.util.Set;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.deletes.PositionDeleteIndex;
-import org.apache.iceberg.util.StructLikeSet;
 
 /** An API for loading delete file content into in-memory data structures. */
 public interface DeleteLoader {
@@ -32,7 +33,7 @@ public interface DeleteLoader {
    * @param projection a projection of columns to load
    * @return a set of equality deletes
    */
-  StructLikeSet loadEqualityDeletes(Iterable<DeleteFile> deleteFiles, Schema projection);
+  Set<StructLike> loadEqualityDeletes(Iterable<DeleteFile> deleteFiles, Schema projection);
 
   /**
    * Loads the content of a deletion vector or position delete files for a given data file path into

@@ -29,6 +29,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.avro.Avro;
 import org.apache.iceberg.deletes.EqualityDeleteWriter;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
@@ -145,6 +146,24 @@ public abstract class BaseFileWriterFactory<T> implements FileWriterFactory<T>, 
   protected abstract void configureEqualityDelete(ORC.DeleteWriteBuilder builder);
 
   protected abstract void configurePositionDelete(ORC.DeleteWriteBuilder builder);
+
+  /**
+   * Extracts the value of a field from a row for equality delete vector writing.
+   *
+   * <p>Subclasses should override this to enable equality delete vector support. The default
+   * implementation throws UnsupportedOperationException to allow engines to opt-in to this feature.
+   *
+   * @param row the row to extract from
+   * @param fieldId the field ID to extract
+   * @return the extracted Long value, or null if the field is null
+   * @throws UnsupportedOperationException if equality delete vectors are not supported by this
+   *     engine
+   */
+  protected Long extractEqualityFieldValue(T row, int fieldId) {
+    throw new UnsupportedOperationException(
+        "Equality delete vectors are not supported. "
+            + "Override extractEqualityFieldValue() to enable this feature.");
+  }
 
   @Override
   public DataWriter<T> newDataWriter(
@@ -288,6 +307,7 @@ public abstract class BaseFileWriterFactory<T> implements FileWriterFactory<T>, 
       throw new UncheckedIOException("Failed to create new equality delete writer", e);
     }
   }
+
 
   @Override
   public PositionDeleteWriter<T> newPositionDeleteWriter(

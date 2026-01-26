@@ -28,8 +28,7 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.deletes.BaseDVFileWriter;
-import org.apache.iceberg.deletes.DVFileWriter;
+import org.apache.iceberg.deletes.BitmapDeleteWriter;
 import org.apache.iceberg.deletes.EqualityDeleteWriter;
 import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
@@ -75,10 +74,10 @@ public class FileHelpers {
     if (formatVersion >= 3) {
       OutputFileFactory fileFactory =
           OutputFileFactory.builderFor(table, 1, 1).format(FileFormat.PUFFIN).build();
-      DVFileWriter writer = new BaseDVFileWriter(fileFactory, p -> null);
-      try (DVFileWriter closeableWriter = writer) {
+      BitmapDeleteWriter writer = new BitmapDeleteWriter(fileFactory, p -> null);
+      try (BitmapDeleteWriter closeableWriter = writer) {
         for (Pair<CharSequence, Long> delete : deletes) {
-          closeableWriter.delete(
+          closeableWriter.deletePosition(
               delete.first().toString(), delete.second(), table.spec(), partition);
         }
       }
@@ -177,10 +176,10 @@ public class FileHelpers {
     if (formatVersion >= 3) {
       OutputFileFactory fileFactory =
           OutputFileFactory.builderFor(table, 1, 1).format(FileFormat.PUFFIN).build();
-      DVFileWriter writer = new BaseDVFileWriter(fileFactory, p -> null);
-      try (DVFileWriter closeableWriter = writer) {
+      BitmapDeleteWriter writer = new BitmapDeleteWriter(fileFactory, p -> null);
+      try (BitmapDeleteWriter closeableWriter = writer) {
         for (PositionDelete<?> delete : deletes) {
-          closeableWriter.delete(delete.path().toString(), delete.pos(), table.spec(), partition);
+          closeableWriter.deletePosition(delete.path().toString(), delete.pos(), table.spec(), partition);
         }
       }
 
