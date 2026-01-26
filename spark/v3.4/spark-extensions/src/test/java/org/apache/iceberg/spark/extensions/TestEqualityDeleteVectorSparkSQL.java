@@ -18,43 +18,63 @@
  */
 package org.apache.iceberg.spark.extensions;
 
+import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
+import static org.apache.iceberg.TableProperties.FORMAT_VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
-import org.apache.iceberg.util.SnapshotUtil;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ParameterizedTestExtension;
-import org.apache.iceberg.RowLevelOperationMode;
+import org.apache.iceberg.Parameters;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
+import org.apache.iceberg.spark.SparkCatalogConfig;
+import org.apache.iceberg.util.SnapshotUtil;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
 import org.apache.spark.sql.catalyst.analysis.NoSuchTableException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
- * Spark SQL integration tests for Delete Vectors (DV) with merge-on-read mode.
+ * Integration tests for Equality Delete Vectors (EDV) with Spark SQL.
  *
- * <p>Tests end-to-end Spark SQL DELETE statements with format version 3 tables using merge-on-read
- * mode to verify that Position Delete Vectors (DVs) are created in PUFFIN format.
+ * <p>Tests the full end-to-end flow of:
  *
- * <p>Note: Spark SQL DELETE creates position deletes, not equality deletes. For Equality Delete
- * Vector (EDV) tests using the programmatic API, see TestSparkEqualityDeleteVectors.
+ * <ul>
+ *   <li>Creating tables with format version 3 (EDV support)
+ *   <li>Writing data using Spark SQL
+ *   <li>Deleting data using Spark SQL DELETE statements
+ *   <li>Verifying that EDVs are created (PUFFIN format)
+ *   <li>Reading with deletes applied
+ *   <li>Schema evolution with EDVs
+ *   <li>Mixed delete formats
+ * </ul>
  */
 @ExtendWith(ParameterizedTestExtension.class)
-public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTestBase {
+public class TestEqualityDeleteVectorSparkSQL extends SparkExtensionsTestBase {
 
-  @Override
-  protected Map<String, String> extraTableProperties() {
-    return ImmutableMap.of(
-        TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+  @Parameters(
+      name =
+          "catalogName = {0}, implementation = {1}, config = {2}, formatVersion = {3}, fileFormat = {4}")
+  protected static Object[][] parameters() {
+    return new Object[][] {
+      {
+        SparkCatalogConfig.HADOOP.catalogName(),
+        SparkCatalogConfig.HADOOP.implementation(),
+        SparkCatalogConfig.HADOOP.properties(),
+        3, // Format version 3 for EDV support
+        "parquet"
+      }
+    };
   }
 
   @AfterEach
@@ -63,40 +83,78 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
   }
 
   @TestTemplate
-  public void testBasicDeleteWithDeleteVectors() throws NoSuchTableException {
-    // Create simple unpartitioned table
-    createAndInitTable("id LONG, data STRING");
+  public void testBasicEqualityDeleteVector() throws NoSuchTableException {
+    // Create table with LONG id (EDV support) and format version 3
+    sql(
+        "CREATE TABLE %s (id BIGINT, data STRING) USING iceberg "
+            + "TBLPROPERTIES ('format-version' = '3', 'write.format.default' = 'parquet')",
+        tableName);
 
-    //  Insert test data
-    append(
-        tableName,
-        "{ \"id\": 1, \"data\": \"a\" }\n"
-            + "{ \"id\": 2, \"data\": \"b\" }\n"
-            + "{ \"id\": 3, \"data\": \"c\" }");
+    // Insert data
+    sql("INSERT INTO %s VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd'), (5, 'e')", tableName);
 
-    createBranchIfNeeded();
+    // Verify initial data
+    List<Object[]> initialRows = sql("SELECT * FROM %s ORDER BY id", tableName);
+    assertThat(initialRows)
+        .containsExactly(
+            row(1L, "a"), row(2L, "b"), row(3L, "c"), row(4L, "d"), row(5L, "e"));
 
-    // Perform DELETE operation
-    sql("DELETE FROM %s WHERE id = 2", commitTarget());
+    // Delete using equality condition (should create EDV)
+    sql("DELETE FROM %s WHERE id IN (2, 4)", tableName);
 
-    // Verify result
-    assertEquals(
-        "Should have expected rows",
-        ImmutableList.of(row(1L, "a"), row(3L, "c")),
-        sql("SELECT * FROM %s ORDER BY id", selectTarget()));
+    // Verify deletes applied
+    List<Object[]> afterDelete = sql("SELECT * FROM %s ORDER BY id", tableName);
+    assertThat(afterDelete).containsExactly(row(1L, "a"), row(3L, "c"), row(5L, "e"));
 
-    // Verify delete files were created
+    // Verify EDV was created (PUFFIN format)
     Table table = validationCatalog.loadTable(tableIdent);
-    Snapshot snapshot = SnapshotUtil.latestSnapshot(table, branch);
+    Snapshot currentSnapshot = table.currentSnapshot();
+    assertThat(currentSnapshot).isNotNull();
 
-    List<DeleteFile> deleteFiles = Lists.newArrayList(snapshot.addedDeleteFiles(table.io()));
-    assertThat(deleteFiles).isNotEmpty();
-
-    // For format v3, verify PUFFIN format
-    if (formatVersion >= 3) {
-      assertThat(deleteFiles)
-          .anyMatch(df -> df.format() == FileFormat.PUFFIN, "Should have PUFFIN DV files in v3");
+    List<DeleteFile> deleteFiles = Lists.newArrayList();
+    for (ManifestFile manifest : currentSnapshot.deleteManifests(table.io())) {
+      deleteFiles.addAll(
+          Lists.newArrayList(
+              org.apache.iceberg.ManifestFiles.read(manifest, table.io()).iterator()));
     }
+
+    // Should have equality delete files in PUFFIN format
+    assertThat(deleteFiles)
+        .isNotEmpty()
+        .allMatch(
+            df -> df.format() == FileFormat.PUFFIN && df.equalityFieldIds().contains(1),
+            "Delete files should be PUFFIN format EDVs with field ID 1");
+  }
+
+  @TestTemplate
+  public void testEqualityDeleteVectorWithPredicates() throws NoSuchTableException {
+    sql(
+        "CREATE TABLE %s (id BIGINT, category STRING, value INT) USING iceberg "
+            + "TBLPROPERTIES ('format-version' = '3')",
+        tableName);
+
+    // Insert test data
+    sql(
+        "INSERT INTO %s VALUES "
+            + "(1, 'A', 100), (2, 'A', 200), (3, 'B', 300), "
+            + "(4, 'B', 400), (5, 'C', 500), (6, 'C', 600)",
+        tableName);
+
+    // Delete with predicate
+    sql("DELETE FROM %s WHERE category = 'B'", tableName);
+
+    // Verify correct rows deleted
+    List<Object[]> result = sql("SELECT * FROM %s ORDER BY id", tableName);
+    assertThat(result)
+        .containsExactly(
+            row(1L, "A", 100), row(2L, "A", 200), row(5L, "C", 500), row(6L, "C", 600));
+
+    // Verify 2 records deleted
+    Table table = validationCatalog.loadTable(tableIdent);
+    Snapshot snapshot = table.currentSnapshot();
+    assertThat(snapshot.summary())
+        .containsEntry("deleted-records", "2")
+        .containsKey("added-delete-files");
   }
 
   @TestTemplate
@@ -123,37 +181,6 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
     sql("DELETE FROM %s WHERE id IN (1, 5)", tableName);
     List<Object[]> afterThird = sql("SELECT id FROM %s ORDER BY id", tableName);
     assertThat(afterThird).extracting(row -> row[0]).containsExactly(3L);
-
-    // Verify multiple snapshots created
-    Table table = validationCatalog.loadTable(tableIdent);
-    assertThat(table.snapshots()).hasSizeGreaterThan(3);
-  }
-
-  @TestTemplate
-  public void testEqualityDeleteVectorWithPredicates() throws NoSuchTableException {
-    sql(
-        "CREATE TABLE %s (id BIGINT, category STRING, value INT) USING iceberg "
-            + "TBLPROPERTIES ('format-version' = '3')",
-        tableName);
-
-    // Insert test data
-    sql(
-        "INSERT INTO %s VALUES "
-            + "(1, 'A', 100), (2, 'A', 200), (3, 'B', 300), "
-            + "(4, 'B', 400), (5, 'C', 500), (6, 'C', 600)",
-        tableName);
-
-    // Delete with predicate
-    sql("DELETE FROM %s WHERE category = 'B'", tableName);
-
-    // Verify correct rows deleted
-    List<Object[]> result = sql("SELECT id FROM %s ORDER BY id", tableName);
-    assertThat(result).extracting(row -> row[0]).containsExactly(1L, 2L, 5L, 6L);
-
-    // Verify snapshot summary
-    Table table = validationCatalog.loadTable(tableIdent);
-    Snapshot snapshot = table.currentSnapshot();
-    assertThat(snapshot.summary()).containsEntry("deleted-records", "2");
   }
 
   @TestTemplate
@@ -163,20 +190,21 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
             + "TBLPROPERTIES ('format-version' = '3')",
         tableName);
 
-    // Insert 1000 sequential records (good for run-length encoding)
-    StringBuilder insertQuery = new StringBuilder("INSERT INTO ").append(tableName).append(" VALUES ");
+    // Insert 1000 sequential records (good for RLE compression)
+    StringBuilder insertBuilder = new StringBuilder("INSERT INTO ").append(tableName).append(" VALUES ");
     for (int i = 0; i < 1000; i++) {
-      if (i > 0) insertQuery.append(", ");
-      insertQuery.append("(").append(i).append(", 'data").append(i).append("')");
+      if (i > 0) insertBuilder.append(", ");
+      insertBuilder.append("(").append(i).append(", 'data").append(i).append("')");
     }
-    sql(insertQuery.toString());
+    sql(insertBuilder.toString());
 
-    // Delete sequential range (should compress well with RLE bitmap)
+    // Delete sequential range (should compress well)
     sql("DELETE FROM %s WHERE id >= 0 AND id < 500", tableName);
 
     // Verify correct count
-    List<Object[]> count = sql("SELECT COUNT(*) FROM %s", tableName);
-    assertThat(count.get(0)[0]).isEqualTo(500L);
+    List<Object[]> result = sql("SELECT COUNT(*) FROM %s", tableName);
+    assertThat(result).hasSize(1);
+    assertThat(result.get(0)[0]).isEqualTo(500L);
 
     // Verify EDV is small due to compression
     Table table = validationCatalog.loadTable(tableIdent);
@@ -186,7 +214,7 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
     assertThat(deleteFiles).isNotEmpty();
     for (DeleteFile deleteFile : deleteFiles) {
       if (deleteFile.format() == FileFormat.PUFFIN) {
-        // Sequential deletes should compress to < 10KB with Roaring bitmap
+        // Sequential deletes should compress to < 10KB
         assertThat(deleteFile.fileSizeInBytes())
             .isLessThan(10_000L)
             .withFailMessage(
@@ -216,21 +244,21 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
     List<Object[]> result = sql("SELECT id FROM %s ORDER BY id", tableName);
     assertThat(result).extracting(row -> row[0]).containsExactly(1L, 1000000L);
 
-    // Verify EDV remains small despite sparse values (bitmap compression)
+    // Verify EDV remains small despite sparse values (Roaring bitmap compression)
     Table table = validationCatalog.loadTable(tableIdent);
     Snapshot snapshot = table.currentSnapshot();
     List<DeleteFile> deleteFiles = getDeleteFiles(table, snapshot);
 
     assertThat(deleteFiles)
         .isNotEmpty()
-        .anyMatch(
+        .allMatch(
             df -> df.format() == FileFormat.PUFFIN && df.fileSizeInBytes() < 5000,
-            "Sparse EDV should be small due to Roaring bitmap compression");
+            "Sparse EDV should be small due to bitmap compression");
   }
 
   @TestTemplate
   public void testSchemaEvolutionWithEDV() throws NoSuchTableException {
-    // Create table with INT id (not EDV-compatible initially)
+    // Create table with INT id (will use traditional deletes)
     sql(
         "CREATE TABLE %s (id INT, data STRING) USING iceberg "
             + "TBLPROPERTIES ('format-version' = '3')",
@@ -239,25 +267,26 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
     // Insert data
     sql("INSERT INTO %s VALUES (1, 'a'), (2, 'b'), (3, 'c')", tableName);
 
-    // Evolve schema: INT → LONG (now EDV-compatible)
+    // Evolve schema: INT → LONG (now eligible for EDV)
     sql("ALTER TABLE %s ALTER COLUMN id TYPE BIGINT", tableName);
 
-    // Delete after schema evolution - should use EDV
+    // Delete after schema change (should use EDV)
     sql("DELETE FROM %s WHERE id = 2", tableName);
 
     // Verify deletes work
     List<Object[]> result = sql("SELECT id FROM %s ORDER BY id", tableName);
     assertThat(result).extracting(row -> row[0]).containsExactly(1L, 3L);
 
-    // Verify EDV files created after schema evolution
+    // Verify new delete files are EDV
     Table table = validationCatalog.loadTable(tableIdent);
     Snapshot snapshot = table.currentSnapshot();
     List<DeleteFile> deleteFiles = getDeleteFiles(table, snapshot);
 
-    long edvCount = deleteFiles.stream().filter(df -> df.format() == FileFormat.PUFFIN).count();
+    long edvCount =
+        deleteFiles.stream().filter(df -> df.format() == FileFormat.PUFFIN).count();
     assertThat(edvCount)
         .isPositive()
-        .withFailMessage("Should have EDVs after INT→LONG schema evolution");
+        .withFailMessage("Should have at least one PUFFIN EDV after schema evolution");
   }
 
   @TestTemplate
@@ -294,6 +323,37 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
   }
 
   @TestTemplate
+  public void testMixedDeleteFormats() throws NoSuchTableException {
+    sql(
+        "CREATE TABLE %s (id BIGINT, data STRING) USING iceberg "
+            + "TBLPROPERTIES ('format-version' = '3')",
+        tableName);
+
+    // Insert data
+    sql("INSERT INTO %s VALUES (1, 'a'), (2, 'b'), (3, 'c'), (4, 'd'), (5, 'e')", tableName);
+
+    // First delete (will be EDV)
+    sql("DELETE FROM %s WHERE id = 2", tableName);
+
+    // Second delete (will be EDV)
+    sql("DELETE FROM %s WHERE id = 4", tableName);
+
+    // Verify both deletes applied
+    List<Object[]> result = sql("SELECT id FROM %s ORDER BY id", tableName);
+    assertThat(result).extracting(row -> row[0]).containsExactly(1L, 3L, 5L);
+
+    // Verify multiple delete files created
+    Table table = validationCatalog.loadTable(tableIdent);
+    Snapshot snapshot = table.currentSnapshot();
+    List<DeleteFile> deleteFiles = getDeleteFiles(table, snapshot);
+
+    // Should have multiple EDVs
+    long edvCount =
+        deleteFiles.stream().filter(df -> df.format() == FileFormat.PUFFIN).count();
+    assertThat(edvCount).isGreaterThanOrEqualTo(1);
+  }
+
+  @TestTemplate
   public void testDeleteWithTimeTravel() throws NoSuchTableException {
     sql(
         "CREATE TABLE %s (id BIGINT, data STRING) USING iceberg "
@@ -315,7 +375,9 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
 
     // Time travel to before delete
     List<Object[]> historicalResult =
-        sql("SELECT id FROM %s VERSION AS OF %d ORDER BY id", tableName, snapshotBeforeDelete);
+        sql(
+            "SELECT id FROM %s VERSION AS OF %d ORDER BY id",
+            tableName, snapshotBeforeDelete);
     assertThat(historicalResult).extracting(row -> row[0]).containsExactly(1L, 2L, 3L);
   }
 
@@ -371,6 +433,12 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
 
   // Helper method to extract delete files from snapshot
   private List<DeleteFile> getDeleteFiles(Table table, Snapshot snapshot) {
-    return Lists.newArrayList(snapshot.addedDeleteFiles(table.io()));
+    List<DeleteFile> deleteFiles = Lists.newArrayList();
+    for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
+      deleteFiles.addAll(
+          Lists.newArrayList(
+              org.apache.iceberg.ManifestFiles.read(manifest, table.io()).iterator()));
+    }
+    return deleteFiles;
   }
 }

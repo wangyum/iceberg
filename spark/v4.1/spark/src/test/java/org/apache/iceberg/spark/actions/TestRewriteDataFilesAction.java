@@ -87,8 +87,7 @@ import org.apache.iceberg.actions.SizeBasedFileRewritePlanner;
 import org.apache.iceberg.data.GenericFileWriterFactory;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
-import org.apache.iceberg.deletes.BaseDVFileWriter;
-import org.apache.iceberg.deletes.DVFileWriter;
+import org.apache.iceberg.deletes.BitmapDeleteWriter;
 import org.apache.iceberg.deletes.EqualityDeleteWriter;
 import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
@@ -2549,10 +2548,10 @@ public class TestRewriteDataFilesAction extends TestBase {
       Table table, StructLike partition, String path, int numPositionsToDelete) throws IOException {
     OutputFileFactory fileFactory =
         OutputFileFactory.builderFor(table, 1, 1).format(FileFormat.PUFFIN).build();
-    DVFileWriter writer = new BaseDVFileWriter(fileFactory, p -> null);
-    try (DVFileWriter closeableWriter = writer) {
+    BitmapDeleteWriter writer = new BitmapDeleteWriter(fileFactory, p -> null);
+    try (BitmapDeleteWriter closeableWriter = writer) {
       for (int row = 0; row < numPositionsToDelete; row++) {
-        closeableWriter.delete(path, row, table.spec(), partition);
+        closeableWriter.deletePosition(path, row, table.spec(), partition);
       }
     }
 

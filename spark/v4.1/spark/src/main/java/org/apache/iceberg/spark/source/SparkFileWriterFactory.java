@@ -242,17 +242,8 @@ class SparkFileWriterFactory extends BaseFileWriterFactory<InternalRow> {
     }
 
     return row.getLong(fieldIndex);
+  }
 
-  /**
-   * Creates an equality delete vector writer following the Position DV pattern.
-   *
-   * <p>This method provides Spark-specific value extraction for use with {@link
-   * org.apache.iceberg.io.PartitioningEDVWriter}.
-   *
-   * @param fileFactory factory for creating output files
-   * @return a PartitioningEDVWriter configured for Spark InternalRow
-   */
-  public org.apache.iceberg.io.PartitioningEDVWriter<InternalRow> newEqualityDeleteVectorWriter(
   /**
    * Creates a bitmap delete writer for equality deletes using the unified BitmapDeleteWriter.
    *
