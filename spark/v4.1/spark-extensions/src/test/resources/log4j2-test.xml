@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Log4j2 configuration for Spark extension tests.
+  Sets default log level to WARN to reduce test output noise.
+-->
+<Configuration status="WARN">
+  <Appenders>
+    <Console name="Console" target="SYSTEM_OUT">
+      <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+    </Console>
+  </Appenders>
+
+  <Loggers>
+    <!-- Root logger set to WARN -->
+    <Root level="WARN">
+      <AppenderRef ref="Console"/>
+    </Root>
+
+    <!-- Iceberg specific loggers -->
+    <Logger name="org.apache.iceberg" level="WARN"/>
+
+    <!-- Spark specific loggers -->
+    <Logger name="org.apache.spark" level="WARN"/>
+    <Logger name="org.sparkproject" level="WARN"/>
+
+    <!-- Hadoop loggers -->
+    <Logger name="org.apache.hadoop" level="WARN"/>
+
+    <!-- Hive loggers -->
+    <Logger name="org.apache.hive" level="WARN"/>
+
+    <!-- Parquet loggers -->
+    <Logger name="org.apache.parquet" level="WARN"/>
+
+    <!-- ORC loggers -->
+    <Logger name="org.apache.orc" level="WARN"/>
+
+    <!-- Test failures and errors should still show -->
+    <Logger name="org.junit" level="INFO"/>
+
+    <!-- Uncomment to enable DEBUG for specific package during debugging -->
+    <!-- <Logger name="org.apache.iceberg.spark.extensions" level="DEBUG"/> -->
+  </Loggers>
+</Configuration>
