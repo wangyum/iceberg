@@ -202,7 +202,8 @@ public class ContentFileParser {
           keyMetadata,
           referencedDataFile,
           contentOffset,
-          contentSizeInBytes);
+          contentSizeInBytes,
+          null); // encoding will be inferred from format
     }
   }
 

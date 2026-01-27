@@ -155,6 +155,13 @@ public class BaseDeleteLoader implements DeleteLoader {
    * @return true if the file is an equality delete vector
    */
   private boolean isEqualityDeleteVector(DeleteFile deleteFile) {
+    // Check encoding field first (explicit metadata)
+    if (deleteFile.encoding() != null) {
+      return deleteFile.encoding() == org.apache.iceberg.DeleteEncoding.DELETION_VECTOR
+          && deleteFile.content() == FileContent.EQUALITY_DELETES;
+    }
+
+    // Fallback to format inference for backward compatibility
     return deleteFile.format() == FileFormat.PUFFIN
         && deleteFile.content() == FileContent.EQUALITY_DELETES;
   }

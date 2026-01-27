@@ -19,6 +19,7 @@
 package org.apache.iceberg.deletes;
 
 import java.util.Objects;
+import org.apache.iceberg.DeleteEncoding;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
@@ -64,6 +65,7 @@ public class EqualityDeleteKey implements DeleteKey {
         .withContentOffset(blobMetadata.offset())
         .withContentSizeInBytes(blobMetadata.length())
         .withRecordCount(cardinality)
+        .withEncoding(DeleteEncoding.DELETION_VECTOR)
         .build();
   }
 

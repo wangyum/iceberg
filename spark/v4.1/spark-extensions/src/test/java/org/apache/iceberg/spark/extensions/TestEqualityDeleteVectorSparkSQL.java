@@ -86,6 +86,14 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
     List<DeleteFile> deleteFiles = Lists.newArrayList(snapshot.addedDeleteFiles(table.io()));
     assertThat(deleteFiles).isNotEmpty();
 
+    // DEBUG: Print what type of deletes we actually have
+    for (DeleteFile df : deleteFiles) {
+      System.out.println("Delete file format: " + df.format());
+      System.out.println("Delete file content: " + df.content());
+      System.out.println("Equality field IDs: " + df.equalityFieldIds());
+      System.out.println("---");
+    }
+
     if (formatVersion >= 3) {
       assertThat(deleteFiles)
           .anyMatch(df -> df.format() == FileFormat.PUFFIN, "Should have PUFFIN DV files in v3");

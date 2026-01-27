@@ -107,7 +107,8 @@ public class TestManifestWriterVersions {
           null,
           null,
           null,
-          null);
+          null,
+          null); // encoding
 
   @TempDir private Path temp;
 
