@@ -190,9 +190,14 @@ public class BitmapDeleteWriter implements Closeable {
 
       try (PuffinWriter closeableWriter = writer) {
         for (BitmapDeletes deletes : deletesByKey.values()) {
-          // Merge logic delegated to accumulator
-          deletes.accumulator().merge(loadPreviousDeletes, rewrittenDeleteFiles);
-          Iterables.addAll(referencedDataFiles, deletes.accumulator().referencedDataFiles());
+          BitmapAccumulator accumulator = deletes.accumulator();
+
+          // Merge logic only for position deletes
+          if (accumulator instanceof PositionBitmapAccumulator) {
+            PositionBitmapAccumulator positionAccumulator = (PositionBitmapAccumulator) accumulator;
+            positionAccumulator.merge(loadPreviousDeletes, rewrittenDeleteFiles);
+            Iterables.addAll(referencedDataFiles, positionAccumulator.referencedDataFiles());
+          }
 
           // Write blob to Puffin
           write(closeableWriter, deletes);

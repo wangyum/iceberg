@@ -151,6 +151,44 @@ public class RoaringPositionBitmap {
   }
 
   /**
+   * Returns a lazy iterator over all positions in this bitmap.
+   *
+   * <p>This provides memory-efficient iteration without materializing all values
+   * into a collection. The iterator respects the natural ordering of positions (sorted ascending).
+   *
+   * @return an iterator over all positions
+   */
+  public java.util.Iterator<Long> iterator() {
+    return new java.util.Iterator<Long>() {
+      private int currentKey = 0;
+      private org.roaringbitmap.IntIterator currentIterator = null;
+
+      @Override
+      public boolean hasNext() {
+        // Advance to next non-empty bitmap if current is exhausted
+        while (currentIterator == null || !currentIterator.hasNext()) {
+          if (currentKey >= bitmaps.length) {
+            return false;
+          }
+          currentIterator = bitmaps[currentKey].getIntIterator();
+          currentKey++;
+        }
+        return true;
+      }
+
+      @Override
+      public Long next() {
+        if (!hasNext()) {
+          throw new java.util.NoSuchElementException();
+        }
+        int key = currentKey - 1;
+        int pos32Bits = currentIterator.next();
+        return toPosition(key, pos32Bits);
+      }
+    };
+  }
+
+  /**
    * Iterates over all positions in the bitmap.
    *
    * @param consumer a consumer for positions

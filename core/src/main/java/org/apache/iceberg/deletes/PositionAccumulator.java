@@ -33,7 +33,7 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 import org.apache.iceberg.util.ContentFileUtil;
 
-class PositionAccumulator implements BitmapAccumulator {
+class PositionAccumulator implements PositionBitmapAccumulator {
   private static final String REFERENCED_DATA_FILE_KEY = "referenced-data-file";
   private static final String CARDINALITY_KEY = "cardinality";
 

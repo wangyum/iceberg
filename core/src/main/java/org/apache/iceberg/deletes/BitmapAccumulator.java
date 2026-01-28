@@ -18,21 +18,43 @@
  */
 package org.apache.iceberg.deletes;
 
-import java.util.List;
-import java.util.function.Function;
-import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.puffin.Blob;
 
+/**
+ * Base interface for bitmap-based delete accumulators.
+ *
+ * <p>Accumulates delete values in memory and serializes them to PUFFIN blobs.
+ * Used by {@link BitmapDeleteWriter} for both position and equality deletes.
+ *
+ * <p>Implementations:
+ * <ul>
+ *   <li>{@link PositionAccumulator} - For position deletes (via {@link PositionBitmapAccumulator})</li>
+ *   <li>{@link EqualityAccumulator} - For equality deletes</li>
+ * </ul>
+ */
 interface BitmapAccumulator {
+
+  /**
+   * Adds a value to this accumulator.
+   *
+   * <p>For position deletes, this is a row position.
+   * For equality deletes, this is a LONG field value.
+   *
+   * @param value the value to add (must be non-negative)
+   */
   void add(long value);
 
+  /**
+   * Serializes this accumulator to a PUFFIN blob.
+   *
+   * @return the serialized blob
+   */
   Blob toBlob();
 
+  /**
+   * Returns the number of values in this accumulator.
+   *
+   * @return the cardinality
+   */
   long cardinality();
-
-  void merge(
-      Function<String, PositionDeleteIndex> loadPreviousDeletes,
-      List<DeleteFile> rewrittenDeleteFiles);
-
-  Iterable<CharSequence> referencedDataFiles();
 }
