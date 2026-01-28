@@ -761,13 +761,13 @@ public abstract class DeleteFileIndexTestBase<
 
     DeleteFile[] fileADeletes = index.forDataFile(0, FILE_A);
     assertThat(fileADeletes).as("Only DV should apply to FILE_A").hasSize(1);
-    assertThat(ContentFileUtil.isDV(fileADeletes[0])).isTrue();
+    assertThat(ContentFileUtil.isPositionDV(fileADeletes[0])).isTrue();
     assertThat(fileADeletes[0].referencedDataFile()).isEqualTo(FILE_A.location());
 
     DeleteFile[] fileBDeletes = index.forDataFile(0, FILE_B);
     assertThat(fileBDeletes).as("Two delete files should apply to FILE_B").hasSize(2);
-    assertThat(ContentFileUtil.isDV(fileBDeletes[0])).isFalse();
-    assertThat(ContentFileUtil.isDV(fileBDeletes[1])).isFalse();
+    assertThat(ContentFileUtil.isPositionDV(fileBDeletes[0])).isFalse();
+    assertThat(ContentFileUtil.isPositionDV(fileBDeletes[1])).isFalse();
   }
 
   @TestTemplate

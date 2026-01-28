@@ -32,6 +32,18 @@ import org.apache.iceberg.relocated.com.google.common.collect.ImmutableList;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
 
+/**
+ * Bitmap accumulator for equality deletes.
+ *
+ * <p>Accumulates LONG values for a single equality field and serializes them
+ * as a Roaring bitmap in PUFFIN format.
+ *
+ * <p><b>Constraints:</b>
+ * <ul>
+ *   <li>Only non-negative LONG values supported</li>
+ *   <li>Single field only (no composite keys)</li>
+ * </ul>
+ */
 class EqualityAccumulator implements BitmapAccumulator {
   private static final String EQUALITY_FIELD_ID_KEY = "equality-field-id";
   private static final String CARDINALITY_KEY = "cardinality";
@@ -62,18 +74,6 @@ class EqualityAccumulator implements BitmapAccumulator {
     bitmap.set(value);
     minValue = Math.min(minValue, value);
     maxValue = Math.max(maxValue, value);
-  }
-
-  @Override
-  public void merge(
-      Function<String, PositionDeleteIndex> loadPreviousDeletes,
-      List<DeleteFile> rewrittenDeleteFiles) {
-    // No-op for equality deletes
-  }
-
-  @Override
-  public Iterable<CharSequence> referencedDataFiles() {
-    return Collections.emptyList();
   }
 
   @Override

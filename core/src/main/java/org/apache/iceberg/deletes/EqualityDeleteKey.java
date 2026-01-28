@@ -19,7 +19,6 @@
 package org.apache.iceberg.deletes;
 
 import java.util.Objects;
-import org.apache.iceberg.DeleteEncoding;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
@@ -29,9 +28,63 @@ import org.apache.iceberg.puffin.BlobMetadata;
 import org.apache.iceberg.util.StructLikeUtil;
 
 /**
- * Delete key for equality delete vectors.
+ * Delete key for equality delete vectors (EDVs).
  *
  * <p>Keyed by equality field ID - each equality field gets its own bitmap of deleted values.
+ *
+ * <p><b>DESIGN CONSTRAINTS:</b>
+ *
+ * <h3>LONG-Only Support</h3>
+ * EDVs currently support only single LONG fields. This covers approximately 80% of real-world
+ * use cases:
+ * <ul>
+ *   <li>Auto-increment IDs (user_id, order_id, customer_id)</li>
+ *   <li>Timestamps (epoch milliseconds)</li>
+ *   <li>Counters and sequence numbers</li>
+ * </ul>
+ *
+ * <p>This constraint keeps implementation simple and maintainable. For non-LONG equality deletes,
+ * use traditional equality delete files (full-row Parquet files). The performance difference is
+ * minimal for:
+ * <ul>
+ *   <li>Small delete sets (< 1000 rows)</li>
+ *   <li>Non-numeric keys (UUIDs, strings)</li>
+ *   <li>Composite keys</li>
+ * </ul>
+ *
+ * <h3>Non-Negative Values Only</h3>
+ * EDVs store values in Roaring bitmaps, which require non-negative integers. Negative values
+ * are rejected at write time with a clear error message pointing users to traditional deletes.
+ *
+ * <h3>Core Benefit: Compaction Conflict Avoidance</h3>
+ * EDVs remain valid after file compaction because they reference <b>logical values</b> (user IDs)
+ * not <b>physical positions</b> (row offsets). This enables:
+ * <ul>
+ *   <li>Concurrent compaction + MERGE INTO operations</li>
+ *   <li>No serialization conflicts between operations</li>
+ *   <li>Better throughput for high-update CDC tables</li>
+ *   <li>Simplified operational workflows</li>
+ * </ul>
+ *
+ * <h3>When to Use EDVs</h3>
+ * <table border="1">
+ *   <tr><th>Scenario</th><th>Recommendation</th></tr>
+ *   <tr><td>High-throughput CDC table with LONG primary key</td><td>✅ Use EDV</td></tr>
+ *   <tr><td>Continuous MERGE INTO + background compaction</td><td>✅ Use EDV</td></tr>
+ *   <tr><td>Frequent deletes on LONG equality field</td><td>✅ Use EDV</td></tr>
+ *   <tr><td>String/UUID primary key</td><td>❌ Use traditional equality deletes</td></tr>
+ *   <tr><td>Composite key (multiple columns)</td><td>❌ Use traditional equality deletes</td></tr>
+ *   <tr><td>Negative ID values</td><td>❌ Use traditional equality deletes</td></tr>
+ *   <tr><td>Small infrequent deletes</td><td>❌ Use traditional equality deletes</td></tr>
+ * </table>
+ *
+ * <p><b>Configuration:</b>
+ * <pre>{@code
+ * table.updateProperties()
+ *   .set(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName())
+ *   .set(TableProperties.DELETE_STRATEGY, TableProperties.DELETE_STRATEGY_EQUALITY)
+ *   .commit();
+ * }</pre>
  */
 public class EqualityDeleteKey implements DeleteKey {
   private final int equalityFieldId;
@@ -65,7 +118,6 @@ public class EqualityDeleteKey implements DeleteKey {
         .withContentOffset(blobMetadata.offset())
         .withContentSizeInBytes(blobMetadata.length())
         .withRecordCount(cardinality)
-        .withEncoding(DeleteEncoding.DELETION_VECTOR)
         .build();
   }
 
@@ -83,6 +135,6 @@ public class EqualityDeleteKey implements DeleteKey {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(equalityFieldId);
+    return Integer.hashCode(equalityFieldId);
   }
 }

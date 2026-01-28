@@ -340,7 +340,7 @@ class SparkEqualityDeltaWrite implements DeltaWrite, RequiresDistributionAndOrde
     private boolean closed = false;
 
     EqualityDeleteOnlyDeltaWriter(Table table, OutputFileFactory deleteFileFactory, int equalityFieldId) {
-      this.delegate = new PartitioningEqualityDeleteWriter<>(table, deleteFileFactory, equalityFieldId);
+      this.delegate = new PartitioningEqualityDeleteWriter<>(deleteFileFactory, equalityFieldId);
       this.equalityDelete = EqualityDelete.create();
       this.io = table.io();
       this.specs = table.specs();

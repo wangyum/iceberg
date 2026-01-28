@@ -57,11 +57,6 @@ import org.apache.iceberg.types.Type;
  *       PUFFIN format)
  *   <li>{@link #isEqualityDV(DeleteFile)} - Checks for Equality Deletion Vectors (standalone,
  *       PUFFIN format)
- *   <li>{@link #isDVType(DeleteFile, FileContent)} - Convenience method to check if a file matches
- *       a specific DV type
- *   <li>{@link #dvTypeDescription(DeleteFile)} - Returns a human-readable description of the DV
- *       type
- *   <li>{@link #isDV(DeleteFile)} - Deprecated generic check for any deletion vector
  * </ul>
  *
  * <p><b>Key Architectural Distinction:</b>
@@ -202,42 +197,15 @@ public class ContentFileUtil {
   }
 
   /**
-   * Checks if a delete file is any type of deletion vector (Position or Equality).
-   *
-   * @param deleteFile the delete file to check
-   * @return true if the file uses deletion vector encoding
-   * @deprecated Use {@link #isPositionDV(DeleteFile)} or {@link #isEqualityDV(DeleteFile)} for
-   *     clarity. This method will be removed in a future release.
-   */
-  @Deprecated
-  public static boolean isDV(DeleteFile deleteFile) {
-    // Check encoding field first (explicit metadata)
-    if (deleteFile.encoding() != null) {
-      return deleteFile.encoding() == org.apache.iceberg.DeleteEncoding.DELETION_VECTOR;
-    }
-
-    // Fallback to format inference for backward compatibility
-    return deleteFile.format() == FileFormat.PUFFIN;
-  }
-
-  /**
    * Checks if a delete file is a Position Deletion Vector.
    *
-   * <p>Position DVs are file-scoped deletion vectors that mark specific row positions for deletion
-   * in a referenced data file. They use deletion vector encoding and must have a referencedDataFile
-   * set.
+   * <p>Position DVs are file-scoped deletion vectors stored in PUFFIN format that mark specific row
+   * positions for deletion in a referenced data file.
    *
    * @param deleteFile the delete file to check
-   * @return true if the file is a Position DV (deletion vector encoding + POSITION_DELETES content)
+   * @return true if the file is a Position DV (PUFFIN format + POSITION_DELETES content)
    */
   public static boolean isPositionDV(DeleteFile deleteFile) {
-    // Check encoding field first (explicit metadata)
-    if (deleteFile.encoding() != null) {
-      return deleteFile.encoding() == org.apache.iceberg.DeleteEncoding.DELETION_VECTOR
-          && deleteFile.content() == FileContent.POSITION_DELETES;
-    }
-
-    // Fallback to format inference for backward compatibility
     return deleteFile.format() == FileFormat.PUFFIN
         && deleteFile.content() == FileContent.POSITION_DELETES;
   }
@@ -245,85 +213,21 @@ public class ContentFileUtil {
   /**
    * Checks if a delete file is an Equality Deletion Vector.
    *
-   * <p>Equality DVs are standalone deletion vectors that mark equality field values for deletion
-   * across all data files. They use deletion vector encoding and must NOT have a referencedDataFile
-   * (they're not tied to a specific data file).
+   * <p>Equality DVs are standalone deletion vectors stored in PUFFIN format that mark equality field
+   * values for deletion across all data files.
    *
    * @param deleteFile the delete file to check
-   * @return true if the file is an Equality DV (deletion vector encoding + EQUALITY_DELETES content)
+   * @return true if the file is an Equality DV (PUFFIN format + EQUALITY_DELETES content)
    */
   public static boolean isEqualityDV(DeleteFile deleteFile) {
-    // Check encoding field first (explicit metadata)
-    if (deleteFile.encoding() != null) {
-      return deleteFile.encoding() == org.apache.iceberg.DeleteEncoding.DELETION_VECTOR
-          && deleteFile.content() == FileContent.EQUALITY_DELETES;
-    }
-
-    // Fallback to format inference for backward compatibility
     return deleteFile.format() == FileFormat.PUFFIN
         && deleteFile.content() == FileContent.EQUALITY_DELETES;
   }
 
   public static boolean containsSingleDV(Iterable<DeleteFile> deleteFiles) {
-    return Iterables.size(deleteFiles) == 1 && Iterables.all(deleteFiles, ContentFileUtil::isDV);
-  }
-
-  /**
-   * Returns a human-readable description of the DV type.
-   *
-   * <p>This method provides a quick way to get a string description of a delete file's type,
-   * useful for logging, debugging, and error messages.
-   *
-   * @param deleteFile the delete file to describe
-   * @return a description string: "Position DV", "Equality DV", "Unknown DV type", or "Not a DV"
-   */
-  public static String dvTypeDescription(DeleteFile deleteFile) {
-    if (isPositionDV(deleteFile)) {
-      return "Position DV";
-    }
-    if (isEqualityDV(deleteFile)) {
-      return "Equality DV";
-    }
-    if (deleteFile.format() == FileFormat.PUFFIN) {
-      return "Unknown DV type";
-    }
-    return "Not a DV";
-  }
-
-  /**
-   * Checks if a delete file matches the expected DV type.
-   *
-   * <p>This is a convenience method that combines encoding and content checks in a single call,
-   * useful when you need to validate that a file is both a DV and of a specific type.
-   *
-   * <p>Example usage:
-   *
-   * <pre>{@code
-   * // Validate that a file is specifically a Position DV
-   * if (ContentFileUtil.isDVType(deleteFile, FileContent.POSITION_DELETES)) {
-   *   // Handle position DV
-   * }
-   *
-   * // Validate that a file is specifically an Equality DV
-   * if (ContentFileUtil.isDVType(deleteFile, FileContent.EQUALITY_DELETES)) {
-   *   // Handle equality DV
-   * }
-   * }</pre>
-   *
-   * @param deleteFile the delete file to check
-   * @param expectedContent the expected content type (POSITION_DELETES or EQUALITY_DELETES)
-   * @return true if the file uses deletion vector encoding AND has the expected content type
-   */
-  public static boolean isDVType(DeleteFile deleteFile, FileContent expectedContent) {
-    // Check encoding field first (explicit metadata)
-    if (deleteFile.encoding() != null) {
-      return deleteFile.encoding() == org.apache.iceberg.DeleteEncoding.DELETION_VECTOR
-          && deleteFile.content() == expectedContent;
-    }
-
-    // Fallback to format inference for backward compatibility
-    return deleteFile.format() == FileFormat.PUFFIN
-        && deleteFile.content() == expectedContent;
+    return Iterables.size(deleteFiles) == 1
+        && Iterables.all(
+            deleteFiles, df -> df.format() == FileFormat.PUFFIN);
   }
 
   public static String dvDesc(DeleteFile deleteFile) {

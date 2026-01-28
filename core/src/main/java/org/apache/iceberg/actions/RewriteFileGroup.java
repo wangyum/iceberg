@@ -64,7 +64,7 @@ public class RewriteFileGroup extends RewriteGroupBase<FileGroupInfo, FileScanTa
 
   public Set<DeleteFile> danglingDVs() {
     return fileScanTasks().stream()
-        .flatMap(task -> task.deletes().stream().filter(ContentFileUtil::isDV))
+        .flatMap(task -> task.deletes().stream().filter(ContentFileUtil::isPositionDV))
         .collect(Collectors.toCollection(DeleteFileSet::create));
   }
 

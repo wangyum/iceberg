@@ -280,7 +280,13 @@ public abstract class DeleteFilter<T> {
     }
 
     for (DeleteFile eqDelete : eqDeletes) {
-      requiredIds.addAll(eqDelete.equalityFieldIds());
+      // Only add equality field IDs that still exist in the table schema
+      // (fields may have been removed since the delete file was written)
+      for (int fieldId : eqDelete.equalityFieldIds()) {
+        if (tableSchema.findField(fieldId) != null) {
+          requiredIds.add(fieldId);
+        }
+      }
     }
 
     Set<Integer> missingIds =

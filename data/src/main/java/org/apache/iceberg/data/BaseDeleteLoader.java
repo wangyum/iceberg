@@ -155,19 +155,14 @@ public class BaseDeleteLoader implements DeleteLoader {
    * @return true if the file is an equality delete vector
    */
   private boolean isEqualityDeleteVector(DeleteFile deleteFile) {
-    // Check encoding field first (explicit metadata)
-    if (deleteFile.encoding() != null) {
-      return deleteFile.encoding() == org.apache.iceberg.DeleteEncoding.DELETION_VECTOR
-          && deleteFile.content() == FileContent.EQUALITY_DELETES;
-    }
-
-    // Fallback to format inference for backward compatibility
     return deleteFile.format() == FileFormat.PUFFIN
         && deleteFile.content() == FileContent.EQUALITY_DELETES;
   }
 
   /**
    * Reads an equality delete vector from a Puffin file and returns a bitmap-backed set.
+   *
+   * <p>Uses the centralized reading logic from {@link EqualityDeleteVectors} for consistency.
    *
    * @param deleteFile the EDV file to read
    * @param projection the schema projection for the equality field
@@ -183,19 +178,22 @@ public class BaseDeleteLoader implements DeleteLoader {
 
     int equalityFieldId = deleteFile.equalityFieldIds().get(0);
 
-    // Read the Puffin blob containing the bitmap
+    // If the equality field is not in the projection, the EDV cannot apply
+    // (this can happen when columns are dropped from the schema)
+    if (projection.findField(equalityFieldId) == null) {
+      LOG.debug(
+          "Equality field {} not in projection, EDV does not apply", equalityFieldId);
+      return java.util.Collections.emptySet();
+    }
+
+    // Use centralized reading logic from EqualityDeleteVectors utility
     InputFile inputFile = loadInputFile.apply(deleteFile);
+    Set<StructLike> deletedValues =
+        EqualityDeleteVectors.readEqualityDeleteSet(inputFile, equalityFieldId, projection);
 
-    // Get the deserialized bitmap
-    org.apache.iceberg.deletes.RoaringPositionBitmap bitmap =
-        EqualityDeleteVectors.readEqualityDeleteVectorBitmap(inputFile);
+    LOG.debug("Loaded EDV with {} deleted values", deletedValues.size());
 
-    LOG.debug("Bitmap deserialized with {} values", bitmap.cardinality());
-
-    // Use BitmapBackedStructLikeSet for memory efficiency
-    // This avoids hydrating thousands/millions of StructLike objects
-    return new org.apache.iceberg.deletes.BitmapBackedStructLikeSet(
-        bitmap, equalityFieldId, projection);
+    return deletedValues;
   }
 
   private Iterable<StructLike> getOrReadEqDeletes(DeleteFile deleteFile, Schema projection) {
@@ -209,6 +207,12 @@ public class BaseDeleteLoader implements DeleteLoader {
   }
 
   private Iterable<StructLike> readEqDeletes(DeleteFile deleteFile, Schema projection) {
+    // Check if this is an equality delete vector (Puffin format)
+    if (isEqualityDeleteVector(deleteFile)) {
+      return readEqualityDeleteVector(deleteFile, projection);
+    }
+
+    // Fall back to reading full-row equality deletes
     CloseableIterable<Record> deletes = openDeletes(deleteFile, projection);
     CloseableIterable<Record> copiedDeletes = CloseableIterable.transform(deletes, Record::copy);
     CloseableIterable<StructLike> copiedDeletesAsStructs = toStructs(copiedDeletes, projection);

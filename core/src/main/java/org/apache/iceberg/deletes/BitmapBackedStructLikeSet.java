@@ -92,23 +92,17 @@ public class BitmapBackedStructLikeSet extends AbstractSet<StructLike> implement
   }
 
   private class BitmapIterator implements Iterator<StructLike> {
-    private final Iterator<Long> delegate;
+    private final Iterator<Long> valueIterator;
 
     BitmapIterator() {
-      // RoaringPositionBitmap doesn't expose a Long iterator directly,
-      // so we use forEach to build a list or implement a custom iterator.
-      // For simplicity and since iterator() is rarely used in hot paths (mostly tests/tools),
-      // we can collect to a list. For true laziness, we'd need to extend RoaringPositionBitmap.
-      //
-      // However, RoaringBitmap DOES expose an IntIterator.
-      // Let's assume we can get an iterator from the underlying bitmap.
-      // Since RoaringPositionBitmap wraps RoaringBitmap, we can iterate it.
-      this.delegate = new RoaringPositionBitmapIterator(bitmap);
+      // Use the lazy iterator from RoaringPositionBitmap
+      // This provides O(1) memory overhead instead of O(n)
+      this.valueIterator = bitmap.iterator();
     }
 
     @Override
     public boolean hasNext() {
-      return delegate.hasNext();
+      return valueIterator.hasNext();
     }
 
     @Override
@@ -116,43 +110,12 @@ public class BitmapBackedStructLikeSet extends AbstractSet<StructLike> implement
       if (!hasNext()) {
         throw new NoSuchElementException();
       }
-      Long value = delegate.next();
+      Long value = valueIterator.next();
       // Create a fresh GenericRecord for each iteration
       // This is necessary because iterator() returns distinct objects
       GenericRecord iterRecord = GenericRecord.create(schema.asStruct());
       iterRecord.set(fieldIndex, value);
       return iterRecord;
-    }
-  }
-
-  /**
-   * Adapts RoaringPositionBitmap iteration to Iterator<Long>.
-   * Note: This implementation assumes the standard RoaringPositionBitmap structure.
-   */
-  private static class RoaringPositionBitmapIterator implements Iterator<Long> {
-    // This is a simplified iterator that collects all values.
-    // In a production environment, this should be lazy to avoid memory overhead.
-    // Given the previous limitation, even a list-based iterator is better than throwing exception,
-    // as it allows tests and tools to work.
-    private final Iterator<Long> iterator;
-
-    RoaringPositionBitmapIterator(RoaringPositionBitmap bitmap) {
-      // Use a list to collect values for iteration
-      // This is not ideal for huge bitmaps but enables functionality
-      // A better approach would be adding a lazy iterator to RoaringPositionBitmap class
-      java.util.List<Long> values = new java.util.ArrayList<>();
-      bitmap.forEach(values::add);
-      this.iterator = values.iterator();
-    }
-
-    @Override
-    public boolean hasNext() {
-      return iterator.hasNext();
-    }
-
-    @Override
-    public Long next() {
-      return iterator.next();
     }
   }
 

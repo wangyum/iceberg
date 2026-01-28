@@ -398,58 +398,6 @@ public class TableProperties {
   public static final String DELETE_STRATEGY_EQUALITY = "equality";
   public static final String DELETE_STRATEGY_DEFAULT = DELETE_STRATEGY_POSITION;
 
-  /**
-   * Controls whether to use bitmap-based equality delete vectors for LONG columns.
-   *
-   * <p>When enabled, equality deletes on a single LONG column will be stored as Roaring bitmaps in
-   * Puffin files instead of traditional Parquet/Avro/ORC formats, providing 40-100x storage
-   * reduction.
-   *
-   * <p>Only applies when:
-   *
-   * <ul>
-   *   <li>Table format version >= 3 (Puffin support required)
-   *   <li>Single equality field (not composite keys)
-   *   <li>Field type is LONG (not INT or other types)
-   *   <li>All delete values are non-negative (>= 0)
-   *   <li>No NULL values in deletes
-   * </ul>
-   *
-   * <p>Falls back to traditional equality deletes if any constraint is violated.
-   */
-  public static final String EQUALITY_DELETE_VECTOR_ENABLED =
-      "write.delete.equality-vector.enabled";
-
-  public static final boolean EQUALITY_DELETE_VECTOR_ENABLED_DEFAULT = false;
-
-  /**
-   * Hint for delete file encoding selection.
-   *
-   * <p>This property provides a hint to the delete writer about which encoding to use for delete
-   * files. The writer may automatically choose the most appropriate encoding based on data
-   * characteristics.
-   *
-   * <p>Valid values:
-   *
-   * <ul>
-   *   <li><b>auto</b> (default): Automatically select encoding based on delete type and data
-   *       characteristics. For equality deletes with single LONG field, use deletion-vector
-   *       encoding; otherwise use full-row encoding.
-   *   <li><b>deletion-vector</b>: Prefer deletion vector (bitmap) encoding when applicable. Falls
-   *       back to full-row if not applicable (e.g., composite keys, unsupported types).
-   *   <li><b>full-row</b>: Always use traditional full-row encoding (Parquet/Avro/ORC).
-   * </ul>
-   *
-   * <p>Note: This is a hint, not a strict requirement. The writer may choose a different encoding
-   * if the requested encoding is not applicable.
-   */
-  public static final String DELETE_ENCODING_HINT = "write.delete.encoding-hint";
-
-  public static final String DELETE_ENCODING_HINT_AUTO = "auto";
-  public static final String DELETE_ENCODING_HINT_DELETION_VECTOR = "deletion-vector";
-  public static final String DELETE_ENCODING_HINT_FULL_ROW = "full-row";
-  public static final String DELETE_ENCODING_HINT_DEFAULT = DELETE_ENCODING_HINT_AUTO;
-
   public static final String UPDATE_ISOLATION_LEVEL = "write.update.isolation-level";
   public static final String UPDATE_ISOLATION_LEVEL_DEFAULT = "serializable";
 

@@ -119,18 +119,12 @@ public interface DataFile extends ContentFile<DataFile> {
           "content_size_in_bytes",
           LongType.get(),
           "The length of referenced content stored in the file");
-  Types.NestedField ENCODING =
-      optional(
-          146,
-          "encoding",
-          IntegerType.get(),
-          "Delete encoding: 0=full-row, 1=deletion-vector, 2=hash-map");
 
   int PARTITION_ID = 102;
   String PARTITION_NAME = "partition";
   String PARTITION_DOC = "Partition data tuple, schema based on the partition spec";
 
-  // NEXT ID TO ASSIGN: 147
+  // NEXT ID TO ASSIGN: 146
 
   static StructType getType(StructType partitionType) {
     // IDs start at 100 to leave room for changes to ManifestEntry
@@ -155,8 +149,7 @@ public interface DataFile extends ContentFile<DataFile> {
         FIRST_ROW_ID,
         REFERENCED_DATA_FILE,
         CONTENT_OFFSET,
-        CONTENT_SIZE,
-        ENCODING);
+        CONTENT_SIZE);
   }
 
   /**

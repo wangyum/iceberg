@@ -222,7 +222,7 @@ class DynamicCommitter implements Committer<DynamicCommittable> {
               .flatMap(List::stream)
               .flatMap(writeResult -> Arrays.stream(writeResult.deleteFiles()))
               .filter(deleteFile -> deleteFile.content() == FileContent.POSITION_DELETES)
-              .filter(Predicate.not(ContentFileUtil::isDV))
+              .filter(Predicate.not(ContentFileUtil::isPositionDV))
               .findAny();
       Preconditions.checkArgument(
           positionalDelete.isEmpty(),

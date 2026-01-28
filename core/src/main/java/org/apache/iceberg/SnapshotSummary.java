@@ -297,7 +297,7 @@ public class SnapshotSummary {
           break;
         case POSITION_DELETES:
           DeleteFile deleteFile = (DeleteFile) file;
-          if (ContentFileUtil.isDV(deleteFile)) {
+          if (ContentFileUtil.isPositionDV(deleteFile)) {
             this.addedDVs += 1;
           } else {
             this.addedPosDeleteFiles += 1;
@@ -325,7 +325,7 @@ public class SnapshotSummary {
           break;
         case POSITION_DELETES:
           DeleteFile deleteFile = (DeleteFile) file;
-          if (ContentFileUtil.isDV(deleteFile)) {
+          if (ContentFileUtil.isPositionDV(deleteFile)) {
             this.removedDVs += 1;
           } else {
             this.removedPosDeleteFiles += 1;

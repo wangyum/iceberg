@@ -1939,7 +1939,7 @@ public class TestRowDelta extends TestBase {
     DeleteFile deleteFile = newDeleteFile(table.spec().specId(), "data_bucket=0");
     assertThatThrownBy(() -> table.newRowDelta().addDeletes(deleteFile))
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("Must use DVs for position deletes in V%s", formatVersion);
+        .hasMessageContaining("Position deletes must use Deletion Vectors in format version " + formatVersion);
   }
 
   @TestTemplate
@@ -1949,7 +1949,7 @@ public class TestRowDelta extends TestBase {
     DeleteFile dv = newDV(dataFile);
     assertThatThrownBy(() -> table.newRowDelta().addDeletes(dv))
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("Must not use DVs for position deletes in V2");
+        .hasMessageContaining("Position Deletion Vectors require format version 3 or higher");
   }
 
   private List<ScanTask> planFiles() {

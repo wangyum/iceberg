@@ -84,7 +84,6 @@ abstract class BaseFile<F> extends SupportsIndexProjection
   private String referencedDataFile = null;
   private Long contentOffset = null;
   private Long contentSizeInBytes = null;
-  private Integer encoding = null;
 
   // cached schema
   private transient Schema avroSchema = null;
@@ -117,7 +116,6 @@ abstract class BaseFile<F> extends SupportsIndexProjection
           DataFile.REFERENCED_DATA_FILE,
           DataFile.CONTENT_OFFSET,
           DataFile.CONTENT_SIZE,
-          DataFile.ENCODING,
           MetadataColumns.ROW_POSITION);
 
   /** Used by Avro reflection to instantiate this class when reading manifest files. */
@@ -252,7 +250,6 @@ abstract class BaseFile<F> extends SupportsIndexProjection
     this.referencedDataFile = toCopy.referencedDataFile;
     this.contentOffset = toCopy.contentOffset;
     this.contentSizeInBytes = toCopy.contentSizeInBytes;
-    this.encoding = toCopy.encoding;
   }
 
   /** Constructor for Java serialization. */
@@ -383,9 +380,6 @@ abstract class BaseFile<F> extends SupportsIndexProjection
         this.contentSizeInBytes = (Long) value;
         return;
       case 21:
-        this.encoding = (Integer) value;
-        return;
-      case 22:
         this.fileOrdinal = (long) value;
         return;
       default:
@@ -443,8 +437,6 @@ abstract class BaseFile<F> extends SupportsIndexProjection
       case 20:
         return contentSizeInBytes;
       case 21:
-        return encoding;
-      case 22:
         return fileOrdinal;
       default:
         throw new UnsupportedOperationException("Unknown field ordinal: " + basePos);

@@ -452,7 +452,6 @@ public class TestContentFileParser {
         null,
         "/path/to/data/file.parquet",
         null,
-        null,
         null);
   }
 
@@ -479,8 +478,7 @@ public class TestContentFileParser {
         null,
         "/path/to/data/file.parquet",
         4L,
-        40L,
-        null);
+        40L);
   }
 
   private static String dvJson() {
@@ -504,7 +502,6 @@ public class TestContentFileParser {
         partitionData,
         1234,
         new Metrics(9L, null, null, null, null),
-        null,
         null,
         null,
         null,
@@ -551,7 +548,6 @@ public class TestContentFileParser {
         1,
         Collections.singletonList(128L),
         ByteBuffer.wrap(new byte[16]),
-        null,
         null,
         null,
         null);

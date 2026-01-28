@@ -19,67 +19,36 @@
 package org.apache.iceberg.io;
 
 import java.io.IOException;
-import org.apache.iceberg.DeleteEncoding;
 import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
-import org.apache.iceberg.Table;
 import org.apache.iceberg.deletes.BitmapDeleteWriter;
 import org.apache.iceberg.deletes.EqualityDelete;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
-import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 
 /**
  * PartitioningEqualityDeleteWriter accumulates equality deletes across partitions and writes them
- * using the appropriate encoding (deletion vector or full-row).
+ * as deletion vectors (bitmap format in PUFFIN files).
  *
  * <p>This writer is used when Spark SQL DELETE operations are configured to use equality deletes
  * instead of position deletes via the {@code write.delete.strategy=equality} table property.
  *
- * <p>The encoding is automatically selected using {@link DeleteWriterFactory} based on table
- * properties and data characteristics.
+ * <p>Delete files are automatically written in PUFFIN format with bitmap encoding for optimal
+ * storage efficiency.
  */
 public class PartitioningEqualityDeleteWriter<T>
     implements PartitioningWriter<EqualityDelete<T>, DeleteWriteResult> {
 
-  private final DeleteEncoding encoding;
   private final BitmapDeleteWriter bitmapWriter;
   private final int equalityFieldId;
   private DeleteWriteResult result;
 
   /**
-   * Constructor with automatic encoding selection (recommended).
+   * Creates a new equality delete writer.
    *
-   * @param table the table
-   * @param fileFactory file factory for creating delete files
+   * @param fileFactory file factory for creating delete files (will use PUFFIN format)
    * @param equalityFieldId the equality field ID
    */
-  public PartitioningEqualityDeleteWriter(
-      Table table, OutputFileFactory fileFactory, int equalityFieldId) {
-    DeleteWriterFactory factory = DeleteWriterFactory.forTable(table);
-    this.encoding = factory.selectEqualityDeleteEncoding(
-        Lists.newArrayList(equalityFieldId), table.schema());
-    this.equalityFieldId = equalityFieldId;
-
-    Preconditions.checkArgument(
-        encoding == DeleteEncoding.DELETION_VECTOR,
-        "PartitioningEqualityDeleteWriter currently only supports DELETION_VECTOR encoding, got: %s",
-        encoding);
-
-    this.bitmapWriter = new BitmapDeleteWriter(fileFactory);
-  }
-
-  /**
-   * Legacy constructor (deprecated - use constructor with Table parameter instead).
-   *
-   * @param fileFactory file factory for creating delete files
-   * @param equalityFieldId the equality field ID
-   * @deprecated Use {@link #PartitioningEqualityDeleteWriter(Table, OutputFileFactory, int)} for
-   *     automatic encoding selection
-   */
-  @Deprecated
   public PartitioningEqualityDeleteWriter(OutputFileFactory fileFactory, int equalityFieldId) {
-    this.encoding = DeleteEncoding.DELETION_VECTOR;
     this.bitmapWriter = new BitmapDeleteWriter(fileFactory);
     this.equalityFieldId = equalityFieldId;
   }

@@ -110,8 +110,15 @@ public class TestEqualityDeleteVectorSparkIntegration extends SparkRowLevelOpera
 
     DeleteFile edvFile = Iterables.getOnlyElement(writer.result().deleteFiles());
 
-    // Apply the EDV
-    table.newRowDelta().addDeletes(edvFile).commit();
+    // Apply the EDV (to the correct branch if needed)
+    if (branch != null) {
+      table.newRowDelta().toBranch(branch).addDeletes(edvFile).commit();
+    } else {
+      table.newRowDelta().addDeletes(edvFile).commit();
+    }
+
+    // Refresh table in Spark to pick up new delete files
+    sql("REFRESH TABLE %s", tableName);
 
     // Verify the delete file is ACTUAL equality delete
     Snapshot snapshot = SnapshotUtil.latestSnapshot(table, branch);
@@ -181,7 +188,11 @@ public class TestEqualityDeleteVectorSparkIntegration extends SparkRowLevelOpera
       w.deleteEquality(1, 2L, table.spec(), null);
       w.deleteEquality(1, 4L, table.spec(), null);
     }
-    table.newRowDelta().addDeletes(Iterables.getOnlyElement(writer1.result().deleteFiles())).commit();
+    if (branch != null) {
+      table.newRowDelta().toBranch(branch).addDeletes(Iterables.getOnlyElement(writer1.result().deleteFiles())).commit();
+    } else {
+      table.newRowDelta().addDeletes(Iterables.getOnlyElement(writer1.result().deleteFiles())).commit();
+    }
 
     // Create second EDV file
     OutputFileFactory fileFactory2 =
@@ -192,7 +203,14 @@ public class TestEqualityDeleteVectorSparkIntegration extends SparkRowLevelOpera
       w.deleteEquality(1, 8L, table.spec(), null);
       w.deleteEquality(1, 10L, table.spec(), null);
     }
-    table.newRowDelta().addDeletes(Iterables.getOnlyElement(writer2.result().deleteFiles())).commit();
+    if (branch != null) {
+      table.newRowDelta().toBranch(branch).addDeletes(Iterables.getOnlyElement(writer2.result().deleteFiles())).commit();
+    } else {
+      table.newRowDelta().addDeletes(Iterables.getOnlyElement(writer2.result().deleteFiles())).commit();
+    }
+
+    // Refresh table in Spark to pick up new delete files
+    sql("REFRESH TABLE %s", tableName);
 
     // Verify Spark can read with multiple EDV files
     List<Object[]> result = sql("SELECT * FROM %s WHERE id <= 10 ORDER BY id", selectTarget());
@@ -242,7 +260,14 @@ public class TestEqualityDeleteVectorSparkIntegration extends SparkRowLevelOpera
     }
 
     DeleteFile edvFile = Iterables.getOnlyElement(writer.result().deleteFiles());
-    table.newRowDelta().addDeletes(edvFile).commit();
+    if (branch != null) {
+      table.newRowDelta().toBranch(branch).addDeletes(edvFile).commit();
+    } else {
+      table.newRowDelta().addDeletes(edvFile).commit();
+    }
+
+    // Refresh table in Spark to pick up new delete files
+    sql("REFRESH TABLE %s", tableName);
 
     System.out.println("\n=== EDV COMPRESSION BENEFITS ===");
     System.out.println("Deleted 100 rows from 1000 total rows");

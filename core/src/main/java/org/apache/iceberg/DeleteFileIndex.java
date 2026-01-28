@@ -483,7 +483,7 @@ class DeleteFileIndex {
       for (DeleteFile file : files) {
         switch (file.content()) {
           case POSITION_DELETES:
-            if (ContentFileUtil.isDV(file)) {
+            if (ContentFileUtil.isPositionDV(file)) {
               add(dvByPath, file);
             } else {
               add(posDeletesByPath, posDeletesByPartition, file);
@@ -829,7 +829,10 @@ class DeleteFileIndex {
             List<Types.NestedField> fields = Lists.newArrayList();
             for (int id : wrapped.equalityFieldIds()) {
               Types.NestedField field = spec.schema().findField(id);
-              fields.add(field);
+              // Skip fields that have been removed from the schema
+              if (field != null) {
+                fields.add(field);
+              }
             }
             this.equalityFields = fields;
           }

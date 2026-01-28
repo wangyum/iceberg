@@ -31,78 +31,45 @@ import org.junit.jupiter.api.Test;
 public class TestContentFileUtilHelpers {
 
   @Test
-  public void testDvTypeDescription() {
+  public void testIsPositionDV() {
     // Position DV (PUFFIN format, POSITION_DELETES content)
     DeleteFile positionDV = mock(DeleteFile.class);
     when(positionDV.format()).thenReturn(FileFormat.PUFFIN);
     when(positionDV.content()).thenReturn(FileContent.POSITION_DELETES);
-    assertThat(ContentFileUtil.dvTypeDescription(positionDV)).isEqualTo("Position DV");
-
-    // Equality DV (PUFFIN format, EQUALITY_DELETES content)
-    DeleteFile equalityDV = mock(DeleteFile.class);
-    when(equalityDV.format()).thenReturn(FileFormat.PUFFIN);
-    when(equalityDV.content()).thenReturn(FileContent.EQUALITY_DELETES);
-    assertThat(ContentFileUtil.dvTypeDescription(equalityDV)).isEqualTo("Equality DV");
+    assertThat(ContentFileUtil.isPositionDV(positionDV)).isTrue();
 
     // Traditional position delete (Parquet format, POSITION_DELETES content)
     DeleteFile traditionalPosition = mock(DeleteFile.class);
     when(traditionalPosition.format()).thenReturn(FileFormat.PARQUET);
     when(traditionalPosition.content()).thenReturn(FileContent.POSITION_DELETES);
-    assertThat(ContentFileUtil.dvTypeDescription(traditionalPosition)).isEqualTo("Not a DV");
+    assertThat(ContentFileUtil.isPositionDV(traditionalPosition)).isFalse();
+
+    // Equality DV should not be detected as position DV
+    DeleteFile equalityDV = mock(DeleteFile.class);
+    when(equalityDV.format()).thenReturn(FileFormat.PUFFIN);
+    when(equalityDV.content()).thenReturn(FileContent.EQUALITY_DELETES);
+    assertThat(ContentFileUtil.isPositionDV(equalityDV)).isFalse();
+  }
+
+  @Test
+  public void testIsEqualityDV() {
+    // Equality DV (PUFFIN format, EQUALITY_DELETES content)
+    DeleteFile equalityDV = mock(DeleteFile.class);
+    when(equalityDV.format()).thenReturn(FileFormat.PUFFIN);
+    when(equalityDV.content()).thenReturn(FileContent.EQUALITY_DELETES);
+    assertThat(ContentFileUtil.isEqualityDV(equalityDV)).isTrue();
 
     // Traditional equality delete (Parquet format, EQUALITY_DELETES content)
     DeleteFile traditionalEquality = mock(DeleteFile.class);
     when(traditionalEquality.format()).thenReturn(FileFormat.PARQUET);
     when(traditionalEquality.content()).thenReturn(FileContent.EQUALITY_DELETES);
-    assertThat(ContentFileUtil.dvTypeDescription(traditionalEquality)).isEqualTo("Not a DV");
-  }
+    assertThat(ContentFileUtil.isEqualityDV(traditionalEquality)).isFalse();
 
-  @Test
-  public void testIsDVType() {
-    // Position DV
+    // Position DV should not be detected as equality DV
     DeleteFile positionDV = mock(DeleteFile.class);
     when(positionDV.format()).thenReturn(FileFormat.PUFFIN);
     when(positionDV.content()).thenReturn(FileContent.POSITION_DELETES);
-    assertThat(ContentFileUtil.isDVType(positionDV, FileContent.POSITION_DELETES)).isTrue();
-    assertThat(ContentFileUtil.isDVType(positionDV, FileContent.EQUALITY_DELETES)).isFalse();
-
-    // Equality DV
-    DeleteFile equalityDV = mock(DeleteFile.class);
-    when(equalityDV.format()).thenReturn(FileFormat.PUFFIN);
-    when(equalityDV.content()).thenReturn(FileContent.EQUALITY_DELETES);
-    assertThat(ContentFileUtil.isDVType(equalityDV, FileContent.EQUALITY_DELETES)).isTrue();
-    assertThat(ContentFileUtil.isDVType(equalityDV, FileContent.POSITION_DELETES)).isFalse();
-
-    // Traditional position delete (Parquet) - not a DV
-    DeleteFile traditionalPosition = mock(DeleteFile.class);
-    when(traditionalPosition.format()).thenReturn(FileFormat.PARQUET);
-    when(traditionalPosition.content()).thenReturn(FileContent.POSITION_DELETES);
-    assertThat(ContentFileUtil.isDVType(traditionalPosition, FileContent.POSITION_DELETES))
-        .isFalse();
-
-    // Traditional equality delete (Parquet) - not a DV
-    DeleteFile traditionalEquality = mock(DeleteFile.class);
-    when(traditionalEquality.format()).thenReturn(FileFormat.PARQUET);
-    when(traditionalEquality.content()).thenReturn(FileContent.EQUALITY_DELETES);
-    assertThat(ContentFileUtil.isDVType(traditionalEquality, FileContent.EQUALITY_DELETES))
-        .isFalse();
-  }
-
-  @Test
-  public void testIsDVTypeConsistencyWithExistingMethods() {
-    // Position DV
-    DeleteFile positionDV = mock(DeleteFile.class);
-    when(positionDV.format()).thenReturn(FileFormat.PUFFIN);
-    when(positionDV.content()).thenReturn(FileContent.POSITION_DELETES);
-    assertThat(ContentFileUtil.isDVType(positionDV, FileContent.POSITION_DELETES))
-        .isEqualTo(ContentFileUtil.isPositionDV(positionDV));
-
-    // Equality DV
-    DeleteFile equalityDV = mock(DeleteFile.class);
-    when(equalityDV.format()).thenReturn(FileFormat.PUFFIN);
-    when(equalityDV.content()).thenReturn(FileContent.EQUALITY_DELETES);
-    assertThat(ContentFileUtil.isDVType(equalityDV, FileContent.EQUALITY_DELETES))
-        .isEqualTo(ContentFileUtil.isEqualityDV(equalityDV));
+    assertThat(ContentFileUtil.isEqualityDV(positionDV)).isFalse();
   }
 }
 

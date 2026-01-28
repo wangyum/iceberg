@@ -207,7 +207,7 @@ public class TestMergeOnReadUpdate extends TestUpdate {
     Set<DeleteFile> deleteFiles =
         TestHelpers.deleteFiles(table, SnapshotUtil.latestSnapshot(table, branch));
     List<DeleteFile> dvs =
-        deleteFiles.stream().filter(ContentFileUtil::isDV).collect(Collectors.toList());
+        deleteFiles.stream().filter(ContentFileUtil::isPositionDV).collect(Collectors.toList());
     assertThat(dvs).hasSize(1);
     assertThat(dvs.get(0).recordCount()).isEqualTo(3);
     assertThat(dvs).allMatch(dv -> FileFormat.fromFileName(dv.location()) == FileFormat.PUFFIN);

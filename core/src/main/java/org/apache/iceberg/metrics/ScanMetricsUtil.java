@@ -32,7 +32,7 @@ public class ScanMetricsUtil {
     metrics.indexedDeleteFiles().increment();
 
     if (deleteFile.content() == FileContent.POSITION_DELETES) {
-      if (ContentFileUtil.isDV(deleteFile)) {
+      if (ContentFileUtil.isPositionDV(deleteFile)) {
         metrics.dvs().increment();
       } else {
         metrics.positionalDeleteFiles().increment();

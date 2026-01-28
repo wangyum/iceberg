@@ -22,6 +22,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.util.Collections;
+import java.util.Set;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.puffin.BlobMetadata;
 import org.apache.iceberg.puffin.Puffin;
@@ -30,13 +33,58 @@ import org.apache.iceberg.puffin.StandardBlobTypes;
 import org.apache.iceberg.relocated.com.google.common.collect.Iterables;
 import org.apache.iceberg.util.Pair;
 
-/** Utility methods for working with Equality Delete Vectors. */
+/**
+ * Utility methods for working with Equality Delete Vectors (EDVs).
+ *
+ * <p>Provides centralized reading logic for EDV PUFFIN files, including:
+ * <ul>
+ *   <li>Low-level bitmap reading for advanced use cases</li>
+ *   <li>High-level Set conversion for delete filtering</li>
+ * </ul>
+ */
 public class EqualityDeleteVectors {
 
   private EqualityDeleteVectors() {}
 
   /**
+   * Reads an equality delete vector from a PUFFIN file and returns a Set for delete filtering.
+   *
+   * <p>This is the preferred method for reading EDVs, as it returns a ready-to-use Set
+   * implementation backed by the compressed bitmap for memory efficiency.
+   *
+   * <p><b>Usage Example:</b>
+   * <pre>{@code
+   * Set<StructLike> deletedValues = EqualityDeleteVectors.readEqualityDeleteSet(
+   *     inputFile, equalityFieldId, tableSchema);
+   *
+   * // Use in delete filtering
+   * if (deletedValues.contains(row)) {
+   *   // Skip deleted row
+   * }
+   * }</pre>
+   *
+   * @param inputFile the PUFFIN file containing the EDV
+   * @param equalityFieldId the field ID being deleted
+   * @param schema the table schema for creating StructLike wrappers
+   * @return an efficient Set implementation backed by the bitmap
+   */
+  public static Set<StructLike> readEqualityDeleteSet(
+      InputFile inputFile,
+      int equalityFieldId,
+      Schema schema) {
+
+    // Read the underlying bitmap
+    RoaringPositionBitmap bitmap = readEqualityDeleteVectorBitmap(inputFile);
+
+    // Wrap in efficient set implementation
+    return new BitmapBackedStructLikeSet(bitmap, equalityFieldId, schema);
+  }
+
+  /**
    * Reads an equality delete vector from a Puffin file and returns the deserialized bitmap.
+   *
+   * <p>This is a low-level method for advanced use cases. Most callers should use
+   * {@link #readEqualityDeleteSet(InputFile, int, Schema)} instead.
    *
    * @param inputFile the EDV Puffin file to read
    * @return the deserialized {@link RoaringPositionBitmap}

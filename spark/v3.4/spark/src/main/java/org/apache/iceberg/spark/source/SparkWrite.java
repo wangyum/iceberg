@@ -398,7 +398,7 @@ abstract class SparkWrite implements Write, RequiresDistributionAndOrdering {
         return DeleteFileSet.create();
       } else {
         return scan.tasks().stream()
-            .flatMap(task -> task.deletes().stream().filter(ContentFileUtil::isDV))
+            .flatMap(task -> task.deletes().stream().filter(ContentFileUtil::isPositionDV))
             .collect(Collectors.toCollection(DeleteFileSet::create));
       }
     }

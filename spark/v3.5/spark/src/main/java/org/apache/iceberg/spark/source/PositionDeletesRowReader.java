@@ -95,7 +95,7 @@ class PositionDeletesRowReader extends BaseRowReader<PositionDeletesScanTask>
         ExpressionUtil.extractByIdInclusive(
             task.residual(), expectedSchema(), caseSensitive(), Ints.toArray(nonConstantFieldIds));
 
-    if (ContentFileUtil.isDV(task.file())) {
+    if (ContentFileUtil.isPositionDV(task.file())) {
       return new DVIterator(inputFile, task.file(), expectedSchema(), idToConstant);
     }
 

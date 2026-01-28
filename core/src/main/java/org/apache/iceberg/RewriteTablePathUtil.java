@@ -560,7 +560,7 @@ public class RewriteTablePathUtil {
    */
   private static String rewriteReferencedDataFilePathForDV(
       DeleteFile deleteFile, String sourcePrefix, String targetPrefix) {
-    if (!ContentFileUtil.isDV(deleteFile) || deleteFile.referencedDataFile() == null) {
+    if (!ContentFileUtil.isPositionDV(deleteFile) || deleteFile.referencedDataFile() == null) {
       return null;
     }
 
@@ -624,7 +624,7 @@ public class RewriteTablePathUtil {
     }
 
     // DV files (Puffin format for v3+) need special handling to rewrite internal blob metadata
-    if (ContentFileUtil.isDV(deleteFile)) {
+    if (ContentFileUtil.isPositionDV(deleteFile)) {
       rewriteDVFile(deleteFile, outputFile, io, sourcePrefix, targetPrefix);
       return;
     }

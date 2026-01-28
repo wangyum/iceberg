@@ -51,8 +51,7 @@ class GenericDeleteFile extends BaseFile<DeleteFile> implements DeleteFile {
       ByteBuffer keyMetadata,
       String referencedDataFile,
       Long contentOffset,
-      Long contentSizeInBytes,
-      DeleteEncoding encoding) {
+      Long contentSizeInBytes) {
     super(
         specId,
         content,
@@ -75,21 +74,6 @@ class GenericDeleteFile extends BaseFile<DeleteFile> implements DeleteFile {
         referencedDataFile,
         contentOffset,
         contentSizeInBytes);
-
-    // Validate encoding against file metadata if explicitly set
-    if (encoding != null) {
-      java.util.List<Integer> fieldIdsList = null;
-      if (equalityFieldIds != null) {
-        fieldIdsList = new java.util.ArrayList<>(equalityFieldIds.length);
-        for (int fieldId : equalityFieldIds) {
-          fieldIdsList.add(fieldId);
-        }
-      }
-      encoding.validate(format, content, fieldIdsList, referencedDataFile);
-    }
-
-    // Store encoding in BaseFile (position 21)
-    set(21, encoding != null ? encoding.id() : null);
   }
 
   /**
@@ -103,27 +87,10 @@ class GenericDeleteFile extends BaseFile<DeleteFile> implements DeleteFile {
   private GenericDeleteFile(
       GenericDeleteFile toCopy, boolean copyStats, Set<Integer> requestedColumnIds) {
     super(toCopy, copyStats, requestedColumnIds);
-    // encoding is already copied by BaseFile copy constructor
   }
 
   /** Constructor for Java serialization. */
   GenericDeleteFile() {}
-
-  @Override
-  public DeleteEncoding encoding() {
-    // Check if encoding field exists (position 21)
-    // Old manifests may not have this field
-    try {
-      Integer encodingId = (Integer) get(21);
-      if (encodingId != null) {
-        return DeleteEncoding.fromId(encodingId);
-      }
-    } catch (ArrayIndexOutOfBoundsException e) {
-      // Old manifest without encoding field - fallback to format inference
-    }
-    // Fallback to interface default (infer from format)
-    return DeleteFile.super.encoding();
-  }
 
   @Override
   public DeleteFile copyWithoutStats() {

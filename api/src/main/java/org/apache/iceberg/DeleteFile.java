@@ -102,38 +102,6 @@ public interface DeleteFile extends ContentFile<DeleteFile> {
   }
 
   /**
-   * Returns the physical encoding of this delete file.
-   *
-   * <p>The encoding specifies HOW deletes are physically stored, separate from WHAT type of
-   * deletes they are (position vs equality). This is an optimization detail that affects storage
-   * format and efficiency but not semantics.
-   *
-   * <p><b>Supported Encodings:</b>
-   *
-   * <ul>
-   *   <li><b>{@link DeleteEncoding#FULL_ROW}</b>: Traditional row-based storage in
-   *       Parquet/Avro/ORC format (default)
-   *   <li><b>{@link DeleteEncoding#DELETION_VECTOR}</b>: Compressed bitmap storage in PUFFIN
-   *       format (for sparse deletes)
-   * </ul>
-   *
-   * <p><b>Default Value:</b> If this method returns null (for delete files written before this
-   * field was added), readers should infer the encoding from the file format: PUFFIN format
-   * implies DELETION_VECTOR, while Parquet/Avro/ORC implies FULL_ROW.
-   *
-   * @return the delete encoding, or null if not explicitly set (backward compatibility)
-   * @see DeleteEncoding
-   */
-  default DeleteEncoding encoding() {
-    // Default implementation for backward compatibility
-    // Infer encoding from format if not explicitly set
-    if (format() == FileFormat.PUFFIN) {
-      return DeleteEncoding.DELETION_VECTOR;
-    }
-    return DeleteEncoding.FULL_ROW;
-  }
-
-  /**
    * Returns the path to the data file this delete file applies to.
    *
    * <p>This method returns different values depending on the delete file type:

@@ -64,7 +64,6 @@ public class FileMetadata {
     private String referencedDataFile = null;
     private Long contentOffset = null;
     private Long contentSizeInBytes = null;
-    private DeleteEncoding encoding = null;
 
     Builder(PartitionSpec spec) {
       this.spec = spec;
@@ -115,7 +114,6 @@ public class FileMetadata {
       this.referencedDataFile = toCopy.referencedDataFile();
       this.contentOffset = toCopy.contentOffset();
       this.contentSizeInBytes = toCopy.contentSizeInBytes();
-      this.encoding = toCopy.encoding();
       return this;
     }
 
@@ -252,11 +250,6 @@ public class FileMetadata {
       return this;
     }
 
-    public Builder withEncoding(DeleteEncoding newEncoding) {
-      this.encoding = newEncoding;
-      return this;
-    }
-
     public DeleteFile build() {
       Preconditions.checkArgument(filePath != null, "File path is required");
       if (format == null) {
@@ -336,8 +329,7 @@ public class FileMetadata {
           keyMetadata,
           referencedDataFile,
           contentOffset,
-          contentSizeInBytes,
-          encoding);
+          contentSizeInBytes);
     }
   }
 }
