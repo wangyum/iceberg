@@ -268,7 +268,8 @@ public class EqualityDVWriter implements Closeable {
       this.equalityFieldId = equalityFieldId;
       this.specId = spec.specId();
       // Use StructLikeUtil for consistent hashcode with copied partition data
-      this.partitionHashCode = StructLikeUtil.copy(partition).hashCode();
+      StructLike copiedPartition = partition != null ? StructLikeUtil.copy(partition) : null;
+      this.partitionHashCode = copiedPartition != null ? copiedPartition.hashCode() : 0;
     }
 
     @Override
