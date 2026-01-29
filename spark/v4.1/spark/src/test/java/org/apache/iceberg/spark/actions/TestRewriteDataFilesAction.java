@@ -2548,10 +2548,10 @@ public class TestRewriteDataFilesAction extends TestBase {
       Table table, StructLike partition, String path, int numPositionsToDelete) throws IOException {
     OutputFileFactory fileFactory =
         OutputFileFactory.builderFor(table, 1, 1).format(FileFormat.PUFFIN).build();
-    BitmapDeleteWriter writer = new BitmapDeleteWriter(fileFactory, p -> null);
-    try (BitmapDeleteWriter closeableWriter = writer) {
+    org.apache.iceberg.deletes.BaseDVFileWriter writer = new org.apache.iceberg.deletes.BaseDVFileWriter(fileFactory, p -> null);
+    try (org.apache.iceberg.deletes.BaseDVFileWriter closeableWriter = writer) {
       for (int row = 0; row < numPositionsToDelete; row++) {
-        closeableWriter.deletePosition(path, row, table.spec(), partition);
+        closeableWriter.delete(path, row, table.spec(), partition);
       }
     }
 
