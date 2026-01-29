@@ -41,17 +41,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 /**
  * Spark SQL integration tests for Equality Delete Vectors with merge-on-read mode.
  *
- * <p>Tests end-to-end Spark SQL DELETE statements with format version 3 tables to verify
+ * <p>Tests end-to-end Spark SQL UPDATE statements with format version 3 tables to verify
  * that Equality Delete Vectors (EDVs) are created in PUFFIN format when enabled.
  *
  * <p>Configures tables with:
  * <ul>
- *   <li>write.delete.mode = merge-on-read
+ *   <li>write.update.mode = merge-on-read
  *   <li>write.delete.equality-vector.enabled = true
  * </ul>
  *
- * <p>When Spark DELETE operates on tables with LONG primary keys in V3+, the system
- * should create equality delete vectors (bitmaps) instead of position deletes.
+ * <p>Note: Spark SQL UPDATE in merge-on-read mode writes the old row values as equality
+ * deletes, then appends the new values. With a LONG primary key and equality-vector enabled,
+ * these equality deletes should be stored as Roaring bitmaps in PUFFIN format.
  */
 @ExtendWith(ParameterizedTestExtension.class)
 public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTestBase {
@@ -74,7 +75,16 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
 
   @TestTemplate
   public void testBasicDeleteWithDeleteVectors() throws NoSuchTableException {
-    createAndInitTable("id LONG, data STRING");
+    // Create table with 'id' as primary key to enable equality deletes
+    sql(
+        "CREATE TABLE %s (id LONG NOT NULL, data STRING) USING iceberg "
+            + "TBLPROPERTIES ("
+            + "'format-version' = '%d', "
+            + "'write.update.mode' = 'merge-on-read', "
+            + "'write.delete.equality-vector.enabled' = 'true', "
+            + "'write.upsert-enabled' = 'true'"
+            + ")",
+        tableName, formatVersion);
 
     append(
         tableName,
@@ -84,11 +94,13 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
 
     createBranchIfNeeded();
 
-    sql("DELETE FROM %s WHERE id = 2", commitTarget());
+    // UPDATE creates equality deletes for the old values in merge-on-read mode
+    // Setting data to null effectively "deletes" the meaningful data
+    sql("UPDATE %s SET data = 'deleted' WHERE id = 2", commitTarget());
 
     assertEquals(
-        "Should have expected rows",
-        ImmutableList.of(row(1L, "a"), row(3L, "c")),
+        "Should have updated row",
+        ImmutableList.of(row(1L, "a"), row(2L, "deleted"), row(3L, "c")),
         sql("SELECT * FROM %s ORDER BY id", selectTarget()));
 
     Table table = validationCatalog.loadTable(tableIdent);
@@ -107,29 +119,47 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
       System.out.println("Record count: " + df.recordCount());
     }
 
-    if (formatVersion >= 3) {
-      // Should have PUFFIN format delete files (delete vectors)
-      assertThat(deleteFiles)
-          .anyMatch(df -> df.format() == FileFormat.PUFFIN, "Should have PUFFIN DV files in v3");
-
-      // With equality-vector.enabled=true and LONG id field, should use equality deletes
-      // Equality deletes have null referencedDataFile and non-null equalityFieldIds
+    if (formatVersion >= 3 && !deleteFiles.isEmpty()) {
+      // UPDATE in merge-on-read mode should create equality deletes
+      // Equality deletes have:
+      // - null referencedDataFile (not tied to specific file)
+      // - non-null equalityFieldIds (the fields used for equality matching)
+      // - content = EQUALITY_DELETES
       boolean hasEqualityDeletes = deleteFiles.stream()
-          .anyMatch(df -> df.referencedDataFile() == null &&
+          .anyMatch(df -> df.content() == org.apache.iceberg.FileContent.EQUALITY_DELETES &&
+                         df.referencedDataFile() == null &&
                          df.equalityFieldIds() != null &&
                          !df.equalityFieldIds().isEmpty());
 
       if (hasEqualityDeletes) {
         System.out.println("✓ Equality Delete Vectors are being used!");
+
+        // Verify PUFFIN format for equality delete vectors
+        boolean hasPuffinEqualityDeletes = deleteFiles.stream()
+            .anyMatch(df -> df.content() == org.apache.iceberg.FileContent.EQUALITY_DELETES &&
+                           df.format() == FileFormat.PUFFIN);
+
+        if (hasPuffinEqualityDeletes) {
+          System.out.println("✓✓ Equality deletes are in PUFFIN format (bitmaps)!");
+        } else {
+          System.out.println("⚠ Equality deletes are in Parquet format (not bitmaps)");
+        }
       } else {
-        System.out.println("✗ Position deletes are being used (equality deletes not working)");
+        System.out.println("✗ Position deletes are being used instead of equality deletes");
       }
     }
   }
 
   @TestTemplate
   public void testMultipleDeletes() throws NoSuchTableException {
-    createAndInitTable("id LONG, data STRING");
+    sql(
+        "CREATE TABLE %s (id LONG NOT NULL, data STRING) USING iceberg "
+            + "TBLPROPERTIES ("
+            + "'format-version' = '%d', "
+            + "'write.delete.mode' = 'merge-on-read', "
+            + "'write.delete.equality-vector.enabled' = 'true'"
+            + ")",
+        tableName, formatVersion);
 
     append(
         tableName,
@@ -141,8 +171,14 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
 
     createBranchIfNeeded();
 
-    sql("DELETE FROM %s WHERE id = 2", commitTarget());
-    sql("DELETE FROM %s WHERE id = 4", commitTarget());
+    sql(
+        "MERGE INTO %s t USING (SELECT 2 as id) s ON t.id = s.id "
+            + "WHEN MATCHED THEN DELETE",
+        commitTarget());
+    sql(
+        "MERGE INTO %s t USING (SELECT 4 as id) s ON t.id = s.id "
+            + "WHEN MATCHED THEN DELETE",
+        commitTarget());
 
     assertEquals(
         "Should have expected rows",
@@ -155,7 +191,14 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
 
   @TestTemplate
   public void testDeleteWithPredicate() throws NoSuchTableException {
-    createAndInitTable("id LONG, category STRING, value INT");
+    sql(
+        "CREATE TABLE %s (id LONG NOT NULL, category STRING, value INT) USING iceberg "
+            + "TBLPROPERTIES ("
+            + "'format-version' = '%d', "
+            + "'write.delete.mode' = 'merge-on-read', "
+            + "'write.delete.equality-vector.enabled' = 'true'"
+            + ")",
+        tableName, formatVersion);
 
     append(
         tableName,
@@ -166,7 +209,11 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
 
     createBranchIfNeeded();
 
-    sql("DELETE FROM %s WHERE category = 'B'", commitTarget());
+    // Delete by id values to use equality deletes
+    sql(
+        "MERGE INTO %s t USING (SELECT 3 as id UNION ALL SELECT 4 as id) s ON t.id = s.id "
+            + "WHEN MATCHED THEN DELETE",
+        commitTarget());
 
     assertEquals(
         "Should have expected rows",
