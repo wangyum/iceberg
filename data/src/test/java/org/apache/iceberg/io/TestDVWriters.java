@@ -40,7 +40,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TestHelpers;
 import org.apache.iceberg.data.BaseDeleteLoader;
 import org.apache.iceberg.data.DeleteLoader;
-import org.apache.iceberg.deletes.EqualityDVWriter;
+import org.apache.iceberg.deletes.BaseDVFileWriter;
 import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.deletes.PositionDeleteIndex;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
@@ -97,14 +97,14 @@ public abstract class TestDVWriters<T> extends WriterTestBase<T> {
     table.newFastAppend().appendFile(dataFile2).commit();
 
     // init the DV writer
-    EqualityDVWriter dvWriter =
-        new EqualityDVWriter(fileFactory, new PreviousDeleteLoader(table, ImmutableMap.of()));
+    BaseDVFileWriter dvWriter =
+        new BaseDVFileWriter(fileFactory, new PreviousDeleteLoader(table, ImmutableMap.of()));
 
     // write deletes for both data files (the order of records is mixed)
-    dvWriter.deletePosition(dataFile1.location(), 1L, table.spec(), null);
-    dvWriter.deletePosition(dataFile2.location(), 0L, table.spec(), null);
-    dvWriter.deletePosition(dataFile1.location(), 0L, table.spec(), null);
-    dvWriter.deletePosition(dataFile2.location(), 1L, table.spec(), null);
+    dvWriter.delete(dataFile1.location(), 1L, table.spec(), null);
+    dvWriter.delete(dataFile2.location(), 0L, table.spec(), null);
+    dvWriter.delete(dataFile1.location(), 0L, table.spec(), null);
+    dvWriter.delete(dataFile2.location(), 1L, table.spec(), null);
     dvWriter.close();
 
     // verify the writer result
@@ -135,9 +135,9 @@ public abstract class TestDVWriters<T> extends WriterTestBase<T> {
     table.newFastAppend().appendFile(dataFile).commit();
 
     // write the first DV
-    EqualityDVWriter dvWriter1 =
-        new EqualityDVWriter(fileFactory, new PreviousDeleteLoader(table, ImmutableMap.of()));
-    dvWriter1.deletePosition(dataFile.location(), 1L, table.spec(), null);
+    BaseDVFileWriter dvWriter1 =
+        new BaseDVFileWriter(fileFactory, new PreviousDeleteLoader(table, ImmutableMap.of()));
+    dvWriter1.delete(dataFile.location(), 1L, table.spec(), null);
     dvWriter1.close();
 
     // validate the writer result
@@ -157,11 +157,11 @@ public abstract class TestDVWriters<T> extends WriterTestBase<T> {
 
     // write the second DV, merging with the first one
     DeleteFile dv1 = Iterables.getOnlyElement(result1.deleteFiles());
-    EqualityDVWriter dvWriter2 =
-        new EqualityDVWriter(
+    BaseDVFileWriter dvWriter2 =
+        new BaseDVFileWriter(
             fileFactory,
             new PreviousDeleteLoader(table, ImmutableMap.of(dataFile.location(), dv1)));
-    dvWriter2.deletePosition(dataFile.location(), 2L, table.spec(), null);
+    dvWriter2.delete(dataFile.location(), 2L, table.spec(), null);
     dvWriter2.close();
 
     // validate the writer result
@@ -203,11 +203,11 @@ public abstract class TestDVWriters<T> extends WriterTestBase<T> {
     table.updateProperties().set(TableProperties.FORMAT_VERSION, "3").commit();
 
     // write a DV, merging with the file-scoped position delete
-    EqualityDVWriter dvWriter =
-        new EqualityDVWriter(
+    BaseDVFileWriter dvWriter =
+        new BaseDVFileWriter(
             fileFactory,
             new PreviousDeleteLoader(table, ImmutableMap.of(dataFile.location(), deleteFile)));
-    dvWriter.deletePosition(dataFile.location(), 1L, table.spec(), null);
+    dvWriter.delete(dataFile.location(), 1L, table.spec(), null);
     dvWriter.close();
 
     // validate the writer result
@@ -230,8 +230,8 @@ public abstract class TestDVWriters<T> extends WriterTestBase<T> {
   public void testNoPuffinFileCreatedWhenNoDeletesWritten() throws IOException {
     assumeThat(formatVersion).isGreaterThanOrEqualTo(3);
 
-    EqualityDVWriter dvWriter =
-        new EqualityDVWriter(fileFactory, new PreviousDeleteLoader(table, ImmutableMap.of()));
+    BaseDVFileWriter dvWriter =
+        new BaseDVFileWriter(fileFactory, new PreviousDeleteLoader(table, ImmutableMap.of()));
 
     // close without writing any deletes
     dvWriter.close();
@@ -281,11 +281,11 @@ public abstract class TestDVWriters<T> extends WriterTestBase<T> {
     table.updateProperties().set(TableProperties.FORMAT_VERSION, "3").commit();
 
     // write a DV, applying old positions but keeping the position delete file in place
-    EqualityDVWriter dvWriter =
-        new EqualityDVWriter(
+    BaseDVFileWriter dvWriter =
+        new BaseDVFileWriter(
             fileFactory,
             new PreviousDeleteLoader(table, ImmutableMap.of(dataFile2.location(), deleteFile)));
-    dvWriter.deletePosition(dataFile2.location(), 1L, table.spec(), null);
+    dvWriter.delete(dataFile2.location(), 1L, table.spec(), null);
     dvWriter.close();
 
     // validate the writer result

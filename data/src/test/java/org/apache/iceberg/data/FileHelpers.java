@@ -28,7 +28,7 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.deletes.EqualityDVWriter;
+import org.apache.iceberg.deletes.BaseDVFileWriter;
 import org.apache.iceberg.deletes.EqualityDeleteWriter;
 import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
@@ -74,10 +74,10 @@ public class FileHelpers {
     if (formatVersion >= 3) {
       OutputFileFactory fileFactory =
           OutputFileFactory.builderFor(table, 1, 1).format(FileFormat.PUFFIN).build();
-      EqualityDVWriter writer = new EqualityDVWriter(fileFactory, p -> null);
-      try (EqualityDVWriter closeableWriter = writer) {
+      BaseDVFileWriter writer = new BaseDVFileWriter(fileFactory, p -> null);
+      try (BaseDVFileWriter closeableWriter = writer) {
         for (Pair<CharSequence, Long> delete : deletes) {
-          closeableWriter.deletePosition(
+          closeableWriter.delete(
               delete.first().toString(), delete.second(), table.spec(), partition);
         }
       }
@@ -176,10 +176,10 @@ public class FileHelpers {
     if (formatVersion >= 3) {
       OutputFileFactory fileFactory =
           OutputFileFactory.builderFor(table, 1, 1).format(FileFormat.PUFFIN).build();
-      EqualityDVWriter writer = new EqualityDVWriter(fileFactory, p -> null);
-      try (EqualityDVWriter closeableWriter = writer) {
+      BaseDVFileWriter writer = new BaseDVFileWriter(fileFactory, p -> null);
+      try (BaseDVFileWriter closeableWriter = writer) {
         for (PositionDelete<?> delete : deletes) {
-          closeableWriter.deletePosition(delete.path().toString(), delete.pos(), table.spec(), partition);
+          closeableWriter.delete(delete.path().toString(), delete.pos(), table.spec(), partition);
         }
       }
 
