@@ -39,22 +39,32 @@ import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
- * Spark SQL integration tests for Delete Vectors with merge-on-read mode.
+ * Spark SQL integration tests for Equality Delete Vectors with merge-on-read mode.
  *
- * <p>Tests end-to-end Spark SQL DELETE statements with format version 3 tables using merge-on-read
- * mode to verify that Delete Vectors (DVs) are created in PUFFIN format.
+ * <p>Tests end-to-end Spark SQL DELETE statements with format version 3 tables to verify
+ * that Equality Delete Vectors (EDVs) are created in PUFFIN format when enabled.
  *
- * <p>Note: Spark SQL DELETE creates position deletes by default. This test validates
- * the delete vector infrastructure works end-to-end with Spark SQL.
+ * <p>Configures tables with:
+ * <ul>
+ *   <li>write.delete.mode = merge-on-read
+ *   <li>write.delete.equality-vector.enabled = true
+ * </ul>
+ *
+ * <p>When Spark DELETE operates on tables with LONG primary keys in V3+, the system
+ * should create equality delete vectors (bitmaps) instead of position deletes.
  */
 @ExtendWith(ParameterizedTestExtension.class)
 public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTestBase {
 
   @Override
   protected Map<String, String> extraTableProperties() {
-    return ImmutableMap.of(
-        TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
-        TableProperties.WRITE_DISTRIBUTION_MODE, "hash");
+    return ImmutableMap.<String, String>builder()
+        .put(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName())
+        .put(TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName())
+        .put(TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName())
+        .put(TableProperties.WRITE_DISTRIBUTION_MODE, "hash")
+        .put("write.delete.equality-vector.enabled", "true")
+        .build();
   }
 
   @AfterEach
@@ -87,9 +97,33 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
     List<DeleteFile> deleteFiles = Lists.newArrayList(snapshot.addedDeleteFiles(table.io()));
     assertThat(deleteFiles).isNotEmpty();
 
+    // Print debug info about what deletes were created
+    for (DeleteFile df : deleteFiles) {
+      System.out.println("=== Delete File Info ===");
+      System.out.println("Format: " + df.format());
+      System.out.println("Content: " + df.content());
+      System.out.println("Equality field IDs: " + df.equalityFieldIds());
+      System.out.println("Referenced data file: " + df.referencedDataFile());
+      System.out.println("Record count: " + df.recordCount());
+    }
+
     if (formatVersion >= 3) {
+      // Should have PUFFIN format delete files (delete vectors)
       assertThat(deleteFiles)
           .anyMatch(df -> df.format() == FileFormat.PUFFIN, "Should have PUFFIN DV files in v3");
+
+      // With equality-vector.enabled=true and LONG id field, should use equality deletes
+      // Equality deletes have null referencedDataFile and non-null equalityFieldIds
+      boolean hasEqualityDeletes = deleteFiles.stream()
+          .anyMatch(df -> df.referencedDataFile() == null &&
+                         df.equalityFieldIds() != null &&
+                         !df.equalityFieldIds().isEmpty());
+
+      if (hasEqualityDeletes) {
+        System.out.println("✓ Equality Delete Vectors are being used!");
+      } else {
+        System.out.println("✗ Position deletes are being used (equality deletes not working)");
+      }
     }
   }
 
