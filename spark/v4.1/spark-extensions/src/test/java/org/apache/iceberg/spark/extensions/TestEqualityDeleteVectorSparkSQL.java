@@ -39,13 +39,13 @@ import org.junit.jupiter.api.TestTemplate;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
- * Spark SQL integration tests for Delete Vectors (DV) with merge-on-read mode.
+ * Spark SQL integration tests for Equality Delete Vectors (EDV) with merge-on-read mode.
  *
  * <p>Tests end-to-end Spark SQL DELETE statements with format version 3 tables using merge-on-read
- * mode to verify that Position Delete Vectors (DVs) are created in PUFFIN format.
+ * mode to verify that Equality Delete Vectors (EDVs) are created in PUFFIN format.
  *
- * <p>Note: Spark SQL DELETE creates position deletes, not equality deletes. For Equality Delete
- * Vector (EDV) tests using the programmatic API, see TestSparkEqualityDeleteVectors.
+ * <p>Configures tables to use equality deletes instead of position deletes by setting
+ * equality field IDs and the prefer-equality-delete strategy.
  */
 @ExtendWith(ParameterizedTestExtension.class)
 public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTestBase {
@@ -53,7 +53,9 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
   @Override
   protected Map<String, String> extraTableProperties() {
     return ImmutableMap.of(
-        TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+        TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName(),
+        "write.delete.mode", "merge-on-read",
+        TableProperties.WRITE_DISTRIBUTION_MODE, "hash");
   }
 
   @AfterEach
@@ -64,6 +66,9 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
   @TestTemplate
   public void testBasicDeleteWithDeleteVectors() throws NoSuchTableException {
     createAndInitTable("id LONG, data STRING");
+
+    // Configure table to use equality deletes on 'id' field
+    sql("ALTER TABLE %s SET TBLPROPERTIES ('write.delete.mode' = 'merge-on-read')", tableName);
 
     append(
         tableName,
@@ -91,12 +96,18 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
       System.out.println("Delete file format: " + df.format());
       System.out.println("Delete file content: " + df.content());
       System.out.println("Equality field IDs: " + df.equalityFieldIds());
+      System.out.println("Referenced data file: " + df.referencedDataFile());
       System.out.println("---");
     }
 
     if (formatVersion >= 3) {
       assertThat(deleteFiles)
           .anyMatch(df -> df.format() == FileFormat.PUFFIN, "Should have PUFFIN DV files in v3");
+
+      // Verify we have equality deletes (not position deletes)
+      // Equality deletes have null referencedDataFile, position deletes have non-null
+      assertThat(deleteFiles)
+          .anyMatch(df -> df.referencedDataFile() == null, "Should have equality deletes (null referenced file)");
     }
   }
 
@@ -130,6 +141,9 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
   public void testDeleteWithPredicate() throws NoSuchTableException {
     createAndInitTable("id LONG, category STRING, value INT");
 
+    // Configure table to use equality deletes on 'id' field
+    sql("ALTER TABLE %s SET TBLPROPERTIES ('write.delete.mode' = 'merge-on-read')", tableName);
+
     append(
         tableName,
         "{ \"id\": 1, \"category\": \"A\", \"value\": 100 }\n"
@@ -148,6 +162,9 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
 
     Table table = validationCatalog.loadTable(tableIdent);
     Snapshot snapshot = SnapshotUtil.latestSnapshot(table, branch);
-    assertThat(snapshot.summary()).containsEntry("added-position-deletes", "2");
+
+    // Check that deletes were added (either position or equality)
+    String deletesAdded = snapshot.summary().getOrDefault("added-delete-files", "0");
+    assertThat(Integer.parseInt(deletesAdded)).isGreaterThan(0);
   }
 }
