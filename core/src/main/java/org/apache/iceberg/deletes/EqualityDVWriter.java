@@ -138,8 +138,12 @@ public class EqualityDVWriter implements Closeable {
       PuffinWriter writer = newWriter();
 
       try (PuffinWriter closeableWriter = writer) {
-        for (EqualityDeletes deletes : deletesByKey.values()) {
-          write(closeableWriter, deletes);
+        for (Map.Entry<EqualityKey, EqualityDeletes> entry : deletesByKey.entrySet()) {
+          EqualityDeletes deletes = entry.getValue();
+          // Only write non-empty bitmaps
+          if (deletes.cardinality() > 0) {
+            write(closeableWriter, entry.getKey(), deletes);
+          }
         }
       }
 
@@ -148,8 +152,11 @@ public class EqualityDVWriter implements Closeable {
       long puffinFileSize = writer.fileSize();
 
       for (EqualityKey key : deletesByKey.keySet()) {
-        DeleteFile deleteFile = createDeleteFile(puffinPath, puffinFileSize, key);
-        deleteFiles.add(deleteFile);
+        // Only create DeleteFile if bitmap was actually written (non-empty)
+        if (blobsByKey.containsKey(key)) {
+          DeleteFile deleteFile = createDeleteFile(puffinPath, puffinFileSize, key);
+          deleteFiles.add(deleteFile);
+        }
       }
 
       this.result =
@@ -160,7 +167,7 @@ public class EqualityDVWriter implements Closeable {
   private DeleteFile createDeleteFile(String path, long size, EqualityKey key) {
     EqualityDeletes deletes = deletesByKey.get(key);
     BlobMetadata blobMetadata = blobsByKey.get(key);
-    return FileMetadata.deleteFileBuilder(deletes.spec())
+    DeleteFile result = FileMetadata.deleteFileBuilder(deletes.spec())
         .ofEqualityDeletes(deletes.equalityFieldId())
         .withFormat(FileFormat.PUFFIN)
         .withPath(path)
@@ -170,13 +177,24 @@ public class EqualityDVWriter implements Closeable {
         .withContentSizeInBytes(blobMetadata.length())
         .withRecordCount(deletes.cardinality())
         .build();
+
+    try {
+      java.nio.file.Files.write(
+          java.nio.file.Paths.get("/tmp/edv-createfile.log"),
+          ("Created DeleteFile: format=" + result.format() + ", content=" + result.content() +
+           ", equalityIds=" + result.equalityFieldIds() + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8),
+          java.nio.file.StandardOpenOption.CREATE,
+          java.nio.file.StandardOpenOption.APPEND);
+    } catch (Exception e) {
+      // Ignore
+    }
+
+    return result;
   }
 
-  private void write(PuffinWriter writer, EqualityDeletes deletes) {
+  private void write(PuffinWriter writer, EqualityKey key, EqualityDeletes deletes) {
     BlobMetadata blobMetadata = writer.write(deletes.toBlob());
-    blobsByKey.put(
-        new EqualityKey(deletes.equalityFieldId(), deletes.spec(), deletes.partition()),
-        blobMetadata);
+    blobsByKey.put(key, blobMetadata);
   }
 
   private PuffinWriter newWriter() {

@@ -179,9 +179,9 @@ public class BaseDeleteLoader implements DeleteLoader {
     // Read the Puffin blob containing the bitmap
     InputFile inputFile = loadInputFile.apply(deleteFile);
 
-    // Get the deserialized bitmap
+    // Get the deserialized bitmap at the specific offset
     org.apache.iceberg.deletes.RoaringPositionBitmap bitmap =
-        EqualityDeleteVectors.readEqualityDeleteVectorBitmap(inputFile);
+        EqualityDeleteVectors.readEqualityDeleteVectorBitmap(inputFile, deleteFile.contentOffset());
 
     LOG.debug("Bitmap deserialized with {} values", bitmap.cardinality());
 

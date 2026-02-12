@@ -19,10 +19,13 @@
 package org.apache.iceberg.spark.extensions;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.util.List;
 import java.util.Map;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.ParameterizedTestExtension;
 import org.apache.iceberg.RowLevelOperationMode;
@@ -75,16 +78,20 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
 
   @TestTemplate
   public void testBasicDeleteWithDeleteVectors() throws NoSuchTableException {
+    assumeTrue(formatVersion >= 3, "Equality delete vectors require format version 3+");
+
     // Create table with 'id' as primary key to enable equality deletes
+    String deleteFormat = "puffin";
     sql(
         "CREATE TABLE %s (id LONG NOT NULL, data STRING) USING iceberg "
             + "TBLPROPERTIES ("
             + "'format-version' = '%d', "
             + "'write.update.mode' = 'merge-on-read', "
             + "'write.delete.equality-vector.enabled' = 'true', "
+            + "'write.delete.format.default' = '%s', "
             + "'write.upsert-enabled' = 'true'"
             + ")",
-        tableName, formatVersion);
+        tableName, formatVersion, deleteFormat);
 
     append(
         tableName,
@@ -109,57 +116,26 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
     List<DeleteFile> deleteFiles = Lists.newArrayList(snapshot.addedDeleteFiles(table.io()));
     assertThat(deleteFiles).isNotEmpty();
 
-    // Print debug info about what deletes were created
-    for (DeleteFile df : deleteFiles) {
-      System.out.println("=== Delete File Info ===");
-      System.out.println("Format: " + df.format());
-      System.out.println("Content: " + df.content());
-      System.out.println("Equality field IDs: " + df.equalityFieldIds());
-      System.out.println("Referenced data file: " + df.referencedDataFile());
-      System.out.println("Record count: " + df.recordCount());
-    }
-
-    if (formatVersion >= 3 && !deleteFiles.isEmpty()) {
-      // UPDATE in merge-on-read mode should create equality deletes
-      // Equality deletes have:
-      // - null referencedDataFile (not tied to specific file)
-      // - non-null equalityFieldIds (the fields used for equality matching)
-      // - content = EQUALITY_DELETES
-      boolean hasEqualityDeletes = deleteFiles.stream()
-          .anyMatch(df -> df.content() == org.apache.iceberg.FileContent.EQUALITY_DELETES &&
-                         df.referencedDataFile() == null &&
-                         df.equalityFieldIds() != null &&
-                         !df.equalityFieldIds().isEmpty());
-
-      if (hasEqualityDeletes) {
-        System.out.println("✓ Equality Delete Vectors are being used!");
-
-        // Verify PUFFIN format for equality delete vectors
-        boolean hasPuffinEqualityDeletes = deleteFiles.stream()
-            .anyMatch(df -> df.content() == org.apache.iceberg.FileContent.EQUALITY_DELETES &&
-                           df.format() == FileFormat.PUFFIN);
-
-        if (hasPuffinEqualityDeletes) {
-          System.out.println("✓✓ Equality deletes are in PUFFIN format (bitmaps)!");
-        } else {
-          System.out.println("⚠ Equality deletes are in Parquet format (not bitmaps)");
-        }
-      } else {
-        System.out.println("✗ Position deletes are being used instead of equality deletes");
-      }
-    }
+    assertThat(deleteFiles)
+        .allMatch(df -> df.content() == FileContent.EQUALITY_DELETES, "all deletes are equality deletes")
+        .allMatch(df -> df.format() == FileFormat.PUFFIN, "all equality deletes are in PUFFIN format");
   }
 
   @TestTemplate
   public void testMultipleDeletes() throws NoSuchTableException {
+    assumeTrue(formatVersion >= 3, "Equality delete vectors require format version 3+");
+
+    String deleteFormat = "puffin";
     sql(
         "CREATE TABLE %s (id LONG NOT NULL, data STRING) USING iceberg "
             + "TBLPROPERTIES ("
             + "'format-version' = '%d', "
             + "'write.delete.mode' = 'merge-on-read', "
-            + "'write.delete.equality-vector.enabled' = 'true'"
+            + "'write.merge.mode' = 'merge-on-read', "
+            + "'write.delete.equality-vector.enabled' = 'true', "
+            + "'write.delete.format.default' = '%s'"
             + ")",
-        tableName, formatVersion);
+        tableName, formatVersion, deleteFormat);
 
     append(
         tableName,
@@ -187,18 +163,30 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
 
     Table table = validationCatalog.loadTable(tableIdent);
     assertThat(table.snapshots()).hasSizeGreaterThan(2);
+
+    Snapshot snapshot = SnapshotUtil.latestSnapshot(table, branch);
+    List<DeleteFile> deleteFiles = Lists.newArrayList(snapshot.addedDeleteFiles(table.io()));
+    assertThat(deleteFiles).isNotEmpty();
+    assertThat(deleteFiles)
+        .allMatch(df -> df.content() == FileContent.EQUALITY_DELETES, "all deletes are equality deletes")
+        .allMatch(df -> df.format() == FileFormat.PUFFIN, "all equality deletes are in PUFFIN format");
   }
 
   @TestTemplate
   public void testDeleteWithPredicate() throws NoSuchTableException {
+    assumeTrue(formatVersion >= 3, "Equality delete vectors require format version 3+");
+
+    String deleteFormat = "puffin";
     sql(
         "CREATE TABLE %s (id LONG NOT NULL, category STRING, value INT) USING iceberg "
             + "TBLPROPERTIES ("
             + "'format-version' = '%d', "
             + "'write.delete.mode' = 'merge-on-read', "
-            + "'write.delete.equality-vector.enabled' = 'true'"
+            + "'write.merge.mode' = 'merge-on-read', "
+            + "'write.delete.equality-vector.enabled' = 'true', "
+            + "'write.delete.format.default' = '%s'"
             + ")",
-        tableName, formatVersion);
+        tableName, formatVersion, deleteFormat);
 
     append(
         tableName,
@@ -223,9 +211,10 @@ public class TestEqualityDeleteVectorSparkSQL extends SparkRowLevelOperationsTes
     Table table = validationCatalog.loadTable(tableIdent);
     Snapshot snapshot = SnapshotUtil.latestSnapshot(table, branch);
 
-    if (formatVersion >= 3) {
-      // In v3, position deletes are written
-      assertThat(snapshot.summary()).containsKey("added-delete-files");
-    }
+    List<DeleteFile> deleteFiles = Lists.newArrayList(snapshot.addedDeleteFiles(table.io()));
+    assertThat(deleteFiles).isNotEmpty();
+    assertThat(deleteFiles)
+        .allMatch(df -> df.content() == FileContent.EQUALITY_DELETES, "all deletes are equality deletes")
+        .allMatch(df -> df.format() == FileFormat.PUFFIN, "all equality deletes are in PUFFIN format");
   }
 }

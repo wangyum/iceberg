@@ -26,6 +26,7 @@ import org.apache.iceberg.IsolationLevel;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableUtil;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.spark.SparkSchemaUtil;
@@ -109,8 +110,27 @@ class SparkPositionDeltaWriteBuilder implements DeltaWriteBuilder {
   private void validateRowIdSchema() {
     Preconditions.checkArgument(info.rowIdSchema().isPresent(), "Row ID schema must be set");
     StructType rowIdSparkType = info.rowIdSchema().get();
-    Schema rowIdSchema = SparkSchemaUtil.convert(EXPECTED_ROW_ID_SCHEMA, rowIdSparkType);
-    validateSchema("row ID", EXPECTED_ROW_ID_SCHEMA, rowIdSchema);
+
+    // For equality delete vectors, we allow extended row ID schema with equality field
+    // Standard row ID schema is (file, position)
+    // Extended schema for equality vectors is (file, position, equality_field)
+    // Validation is lenient to support both
+
+    StructType basicRowIdType = new StructType();
+    for (org.apache.spark.sql.types.StructField field : rowIdSparkType.fields()) {
+      if (field.name().equalsIgnoreCase(MetadataColumns.FILE_PATH.name())
+          || field.name().equalsIgnoreCase(MetadataColumns.ROW_POSITION.name())) {
+        basicRowIdType = basicRowIdType.add(field);
+      }
+    }
+
+    Schema rowIdSchema = SparkSchemaUtil.convert(EXPECTED_ROW_ID_SCHEMA, basicRowIdType);
+    if (rowIdSchema.columns().size() < 2) {
+      throw new IllegalArgumentException(
+          String.format(
+              "Row ID schema must have at least file and position fields, got: %s",
+              rowIdSparkType));
+    }
   }
 
   private void validateMetadataSchema() {

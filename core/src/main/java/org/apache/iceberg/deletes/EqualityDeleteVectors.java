@@ -41,6 +41,14 @@ public class EqualityDeleteVectors {
    * @param inputFile the EDV Puffin file to read
    * @return the deserialized {@link RoaringPositionBitmap}
    */
+  /**
+   * Reads an equality delete vector bitmap from a Puffin file.
+   *
+   * @param inputFile the Puffin file containing the EDV blob
+   * @return the deserialized Roaring bitmap
+   * @deprecated Use {@link #readEqualityDeleteVectorBitmap(InputFile, long)} with contentOffset
+   */
+  @Deprecated
   public static RoaringPositionBitmap readEqualityDeleteVectorBitmap(InputFile inputFile) {
     try (PuffinReader reader = Puffin.read(inputFile).build()) {
       BlobMetadata edvBlob = reader.fileMetadata().blobs().stream()
@@ -49,6 +57,33 @@ public class EqualityDeleteVectors {
           .orElseThrow(() -> new IllegalArgumentException(
               String.format("No %s blob found in Puffin file %s",
                   StandardBlobTypes.EDV_V1, inputFile.location())));
+
+      ByteBuffer data = Iterables.getOnlyElement(
+          reader.readAll(Collections.singletonList(edvBlob))).second();
+      data.order(java.nio.ByteOrder.LITTLE_ENDIAN);
+      return RoaringPositionBitmap.deserialize(data);
+    } catch (IOException e) {
+      throw new UncheckedIOException("Failed to read equality delete vector", e);
+    }
+  }
+
+  /**
+   * Reads an equality delete vector bitmap from a Puffin file at a specific offset.
+   *
+   * @param inputFile the Puffin file containing the EDV blob
+   * @param contentOffset the offset of the blob within the Puffin file
+   * @return the deserialized Roaring bitmap
+   */
+  public static RoaringPositionBitmap readEqualityDeleteVectorBitmap(
+      InputFile inputFile, long contentOffset) {
+    try (PuffinReader reader = Puffin.read(inputFile).build()) {
+      BlobMetadata edvBlob = reader.fileMetadata().blobs().stream()
+          .filter(b -> StandardBlobTypes.EDV_V1.equals(b.type()))
+          .filter(b -> b.offset() == contentOffset)
+          .findFirst()
+          .orElseThrow(() -> new IllegalArgumentException(
+              String.format(java.util.Locale.ROOT, "No %s blob found at offset %d in Puffin file %s",
+                  StandardBlobTypes.EDV_V1, contentOffset, inputFile.location())));
 
       ByteBuffer data = Iterables.getOnlyElement(
           reader.readAll(Collections.singletonList(edvBlob))).second();
