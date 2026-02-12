@@ -271,7 +271,8 @@ abstract class MergingSnapshotProducer<ThisT> extends SnapshotProducer<ThisT> {
     if (deleteFiles.add(file)) {
       addedFilesSummary.addedFile(spec, file);
       hasNewDeleteFiles = true;
-      if (ContentFileUtil.isDV(file)) {
+      // Only Position DVs have referencedDataFile - track for concurrency validation
+      if (ContentFileUtil.isPositionDV(file)) {
         newDVRefs.add(file.referencedDataFile());
       }
     }
@@ -279,25 +280,49 @@ abstract class MergingSnapshotProducer<ThisT> extends SnapshotProducer<ThisT> {
 
   protected void validateNewDeleteFile(DeleteFile file) {
     Preconditions.checkNotNull(file, "Invalid delete file: null");
-    switch (formatVersion()) {
+
+    int version = formatVersion();
+
+    switch (version) {
       case 1:
         throw new IllegalArgumentException("Deletes are supported in V2 and above");
+
       case 2:
+        // V2: All deletion vectors (Position and Equality) are forbidden
         Preconditions.checkArgument(
-            file.content() == FileContent.EQUALITY_DELETES || !ContentFileUtil.isDV(file),
-            "Must not use DVs for position deletes in V2: %s",
+            !ContentFileUtil.isPositionDV(file),
+            "Position Deletion Vectors require format version 3 or higher. "
+                + "Current version: %s, file: %s",
+            version,
             ContentFileUtil.dvDesc(file));
-        break;
-      case 3:
-      case 4:
+
         Preconditions.checkArgument(
-            file.content() == FileContent.EQUALITY_DELETES || ContentFileUtil.isDV(file),
-            "Must use DVs for position deletes in V%s: %s",
-            formatVersion(),
+            !ContentFileUtil.isEqualityDV(file),
+            "Equality Deletion Vectors require format version 3 or higher. "
+                + "Current version: %s, file: %s",
+            version,
             file.location());
         break;
+
+      case 3:
+      case 4:
+        // V3+: Position deletes MUST use DVs (spec requirement)
+        if (file.content() == FileContent.POSITION_DELETES) {
+          Preconditions.checkArgument(
+              ContentFileUtil.isPositionDV(file),
+              "Position deletes must use Deletion Vectors in format version %s or higher. "
+                  + "File: %s",
+              version,
+              file.location());
+        }
+
+        // V3+: Equality DVs are allowed and automatic for LONG fields
+        // Traditional equality deletes (Parquet/Avro/ORC) are also allowed
+        // No validation needed - both formats are valid in v3+
+        break;
+
       default:
-        throw new IllegalArgumentException("Unsupported format version: " + formatVersion());
+        throw new IllegalArgumentException("Unsupported format version: " + version);
     }
   }
 
@@ -845,10 +870,12 @@ abstract class MergingSnapshotProducer<ThisT> extends SnapshotProducer<ThisT> {
 
       for (ManifestEntry<DeleteFile> entry : entries) {
         DeleteFile file = entry.file();
-        if (newSnapshotIds.contains(entry.snapshotId()) && ContentFileUtil.isDV(file)) {
+        // Only validate Position DVs - they're file-scoped and can conflict
+        // Equality DVs are standalone and don't have concurrency issues
+        if (newSnapshotIds.contains(entry.snapshotId()) && ContentFileUtil.isPositionDV(file)) {
           ValidationException.check(
               !newDVRefs.contains(file.referencedDataFile()),
-              "Found concurrently added DV for %s: %s",
+              "Found concurrently added Position DV for %s: %s",
               file.referencedDataFile(),
               ContentFileUtil.dvDesc(file));
         }

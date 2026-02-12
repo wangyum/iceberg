@@ -46,6 +46,7 @@ import org.apache.iceberg.util.CharSequenceSet;
 import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.iceberg.util.StructLikeUtil;
 
+/** Writer for Position Deletion Vectors stored in Puffin files. */
 public class BaseDVFileWriter implements DVFileWriter {
 
   private static final String REFERENCED_DATA_FILE_KEY = "referenced-data-file";
@@ -83,12 +84,6 @@ public class BaseDVFileWriter implements DVFileWriter {
       List<DeleteFile> dvs = Lists.newArrayList();
       CharSequenceSet referencedDataFiles = CharSequenceSet.empty();
       List<DeleteFile> rewrittenDeleteFiles = Lists.newArrayList();
-
-      // Only create PuffinWriter if there are deletes to write
-      if (deletesByPath.isEmpty()) {
-        this.result = new DeleteWriteResult(dvs, referencedDataFiles, rewrittenDeleteFiles);
-        return;
-      }
 
       PuffinWriter writer = newWriter();
 
@@ -149,7 +144,8 @@ public class BaseDVFileWriter implements DVFileWriter {
 
   private PuffinWriter newWriter() {
     EncryptedOutputFile outputFile = fileFactory.newOutputFile();
-    return Puffin.write(outputFile).createdBy(IcebergBuild.fullVersion()).build();
+    String ident = "Iceberg " + IcebergBuild.fullVersion();
+    return Puffin.write(outputFile).createdBy(ident).build();
   }
 
   private Blob toBlob(PositionDeleteIndex positions, String path) {

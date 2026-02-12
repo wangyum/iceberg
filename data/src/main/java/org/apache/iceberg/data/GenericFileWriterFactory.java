@@ -24,13 +24,22 @@ import static org.apache.iceberg.TableProperties.DELETE_DEFAULT_FILE_FORMAT;
 
 import java.util.Map;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableUtil;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.avro.Avro;
 import org.apache.iceberg.data.avro.DataWriter;
 import org.apache.iceberg.data.orc.GenericOrcWriter;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
+import org.apache.iceberg.deletes.EqualityDVWriter;
+import org.apache.iceberg.deletes.EqualityDeleteWriter;
+import org.apache.iceberg.encryption.EncryptedOutputFile;
+import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.orc.ORC;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
@@ -164,6 +173,43 @@ public class GenericFileWriterFactory extends BaseFileWriterFactory<Record> {
   protected void configurePositionDelete(ORC.DeleteWriteBuilder builder) {
     builder.createWriterFunc(GenericOrcWriter::buildWriter);
   }
+
+  @Override
+  protected Long extractEqualityFieldValue(Record row, int fieldId) {
+    int fieldIndex = findEqualityFieldIndex(fieldId);
+    return row.get(fieldIndex, Long.class);
+  }
+
+  // Note: table() and equalityFieldIds() are now provided by BaseFileWriterFactory
+
+  public org.apache.iceberg.deletes.EqualityDVWriter newEqualityDeleteVectorWriter(
+      org.apache.iceberg.io.OutputFileFactory fileFactory) {
+    return new org.apache.iceberg.deletes.EqualityDVWriter(fileFactory);
+  }
+
+  public void writeEqualityDelete(
+      org.apache.iceberg.deletes.EqualityDVWriter writer,
+      Record row,
+      int equalityFieldId,
+      org.apache.iceberg.PartitionSpec spec,
+      org.apache.iceberg.StructLike partition) {
+    Long value = extractEqualityFieldValue(row, equalityFieldId);
+    if (value != null) {
+      // Validate non-negative constraint for Equality DVs
+      if (value < 0) {
+        throw new IllegalArgumentException(
+            String.format(
+                java.util.Locale.ROOT,
+                "Equality delete vectors require non-negative LONG values. "
+                    + "Got value %d for field ID %d. "
+                    + "Use Parquet equality deletes for negative values or disable EDV.",
+                value,
+                equalityFieldId));
+      }
+      writer.delete(equalityFieldId, value, spec, partition);
+    }
+  }
+
 
   public static class Builder {
     private final Table table;

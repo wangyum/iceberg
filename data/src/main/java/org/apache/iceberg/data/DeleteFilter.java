@@ -215,7 +215,7 @@ public abstract class DeleteFilter<T> {
       // a projection to select and reorder fields of the file schema to match the delete rows
       StructProjection projectRow = StructProjection.create(requiredSchema, deleteSchema);
 
-      StructLikeSet deleteSet = deleteLoader().loadEqualityDeletes(deletes, deleteSchema);
+      Set<StructLike> deleteSet = deleteLoader().loadEqualityDeletes(deletes, deleteSchema);
       Predicate<T> isInDeleteSet =
           record -> deleteSet.contains(projectRow.wrap(asStructLike(record)));
       isInDeleteSets.add(isInDeleteSet);

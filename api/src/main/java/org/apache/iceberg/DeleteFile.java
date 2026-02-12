@@ -20,7 +20,18 @@ package org.apache.iceberg;
 
 import java.util.List;
 
-/** Interface for delete files listed in a table delete manifest. */
+/**
+ * Interface for delete files listed in a table delete manifest.
+ *
+ * <p>Delete files mark rows for deletion. Two types exist:
+ * <ul>
+ *   <li><b>Position deletes</b>: Mark specific (file_path, row_position) pairs. V3+ uses deletion vectors (Puffin/Roaring bitmaps).
+ *   <li><b>Equality deletes</b>: Mark rows by field values (e.g., id=100). V3+ can use equality delete vectors for single LONG fields.
+ * </ul>
+ *
+ * @see FileContent#POSITION_DELETES
+ * @see FileContent#EQUALITY_DELETES
+ */
 public interface DeleteFile extends ContentFile<DeleteFile> {
   /**
    * @return List of recommended split locations, if applicable, null otherwise. When available,
@@ -33,33 +44,62 @@ public interface DeleteFile extends ContentFile<DeleteFile> {
   }
 
   /**
-   * Returns the location of a data file that all deletes reference.
+   * Returns the path to the data file this delete file applies to.
    *
-   * <p>The referenced data file is required for deletion vectors and may be optionally captured for
-   * position delete files that apply to only one data file. This method always returns null for
-   * equality delete files.
+   * <p>Position deletes (including position DVs in V3+) reference a specific data file. Equality deletes apply to all files and return null.
+   *
+   * @return the referenced data file path for position deletes, null for equality deletes
    */
   default String referencedDataFile() {
     return null;
   }
 
   /**
-   * Returns the offset in the file where the content starts.
+   * Returns the offset in the file where the deletion vector blob starts.
    *
-   * <p>The content offset is required for deletion vectors and points to the start of the deletion
-   * vector blob in the Puffin file, enabling direct access. This method always returns null for
-   * equality and position delete files.
+   * <p>This method applies to Deletion Vectors only (PUFFIN format files):
+   *
+   * <p><b>Deletion Vectors (Position DVs and Equality DVs):</b>
+   *
+   * <ul>
+   *   <li>MUST return the byte offset where the Roaring bitmap blob starts in the Puffin file
+   *   <li>Used with {@link #contentSizeInBytes()} to enable direct blob access without reading the
+   *       entire Puffin file
+   *   <li>Points to the serialized Roaring bitmap data within the Puffin blob
+   * </ul>
+   *
+   * <p><b>Traditional Delete Files (Parquet/Avro/ORC):</b>
+   *
+   * <ul>
+   *   <li>MUST return null (not applicable to row-based delete files)
+   * </ul>
+   *
+   * <p><b>Example Usage:</b>
+   *
+   * <pre>{@code
+   * DeleteFile dv = ...;  // Position DV or Equality DV
+   * InputFile puffinFile = io.newInputFile(dv.location());
+   * long offset = dv.contentOffset();        // e.g., 512 bytes into the Puffin file
+   * int size = dv.contentSizeInBytes();      // e.g., 1024 bytes
+   * byte[] bitmapData = readBytes(puffinFile, offset, size);
+   * RoaringBitmap bitmap = RoaringBitmap.deserialize(bitmapData);
+   * }</pre>
+   *
+   * @return the byte offset of the deletion vector blob for DVs, null for traditional delete files
+   * @see #contentSizeInBytes()
+   * @see #referencedDataFile()
    */
   default Long contentOffset() {
     return null;
   }
 
   /**
-   * Returns the length of referenced content stored in the file.
+   * Returns the size in bytes of the deletion vector blob.
    *
-   * <p>The content size is required for deletion vectors and indicates the size of the deletion
-   * vector blob in the Puffin file, enabling direct access. This method always returns null for
-   * equality and position delete files.
+   * <p>For deletion vectors (V3+ PUFFIN files), returns the size of the Roaring bitmap blob. For traditional delete files, returns null.
+   *
+   * @return the size in bytes of the deletion vector blob, or null for traditional delete files
+   * @see #contentOffset()
    */
   default Long contentSizeInBytes() {
     return null;
