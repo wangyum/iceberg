@@ -471,7 +471,10 @@ abstract class ManifestFilterManager<F extends ContentFile<F>> {
   }
 
   private boolean isDanglingDV(DeleteFile file) {
-    return ContentFileUtil.isDV(file) && removedDataFilePaths.contains(file.referencedDataFile());
+    // Only Position DVs can be dangling - they reference specific data files
+    // Equality DVs are standalone (no referencedDataFile) and are never dangling
+    return ContentFileUtil.isPositionDV(file)
+        && removedDataFilePaths.contains(file.referencedDataFile());
   }
 
   @SuppressWarnings({"CollectionUndefinedEquality", "checkstyle:CyclomaticComplexity"})

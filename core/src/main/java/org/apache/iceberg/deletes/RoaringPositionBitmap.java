@@ -48,7 +48,7 @@ import org.roaringbitmap.RoaringBitmap;
  * Supporting Integer.MAX_VALUE as a key would require allocating a bitmap array with size
  * Integer.MAX_VALUE + 1, triggering an integer overflow.
  */
-class RoaringPositionBitmap {
+public class RoaringPositionBitmap {
 
   static final long MAX_POSITION = toPosition(Integer.MAX_VALUE - 1, Integer.MIN_VALUE);
   private static final RoaringBitmap[] EMPTY_BITMAP_ARRAY = new RoaringBitmap[0];

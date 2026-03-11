@@ -261,14 +261,36 @@ public class FileMetadata {
       Preconditions.checkArgument(recordCount >= 0, "Record count is required");
 
       if (format == FileFormat.PUFFIN) {
-        Preconditions.checkArgument(contentOffset != null, "Content offset is required for DV");
-        Preconditions.checkArgument(contentSizeInBytes != null, "Content size is required for DV");
+        // PUFFIN files can be used for both:
+        // 1. Position Delete Vectors (DV) - require contentOffset, contentSizeInBytes, and
+        // referencedDataFile
+        // 2. Equality Delete Vectors (EDV) - standalone equality deletes, don't require
+        // referencedDataFile
+        boolean isPositionDeleteVector = content == FileContent.POSITION_DELETES;
+        boolean isEqualityDeleteVector = content == FileContent.EQUALITY_DELETES;
+
+        // Both position DV and equality EDV store blobs in Puffin files, so both need contentOffset
+        // and contentSizeInBytes
         Preconditions.checkArgument(
-            referencedDataFile != null, "Referenced data file is required for DV");
+            contentOffset != null, "Content offset is required for PUFFIN files");
+        Preconditions.checkArgument(
+            contentSizeInBytes != null, "Content size is required for PUFFIN files");
+
+        if (isPositionDeleteVector) {
+          // Position DV requires a referenced data file
+          Preconditions.checkArgument(
+              referencedDataFile != null, "Referenced data file is required for position DV");
+        } else if (isEqualityDeleteVector) {
+          // Equality DV (EDV) is standalone, doesn't require referencedDataFile
+          Preconditions.checkArgument(
+              referencedDataFile == null,
+              "Referenced data file should not be set for standalone EDV");
+        }
       } else {
-        Preconditions.checkArgument(contentOffset == null, "Content offset can only be set for DV");
         Preconditions.checkArgument(
-            contentSizeInBytes == null, "Content size can only be set for DV");
+            contentOffset == null, "Content offset can only be set for PUFFIN files");
+        Preconditions.checkArgument(
+            contentSizeInBytes == null, "Content size can only be set for PUFFIN files");
       }
 
       switch (content) {

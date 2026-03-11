@@ -29,6 +29,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.avro.Avro;
 import org.apache.iceberg.deletes.EqualityDeleteWriter;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
@@ -145,6 +146,24 @@ public abstract class BaseFileWriterFactory<T> implements FileWriterFactory<T>, 
   protected abstract void configureEqualityDelete(ORC.DeleteWriteBuilder builder);
 
   protected abstract void configurePositionDelete(ORC.DeleteWriteBuilder builder);
+
+  /**
+   * Extracts the value of a field from a row for equality delete vector writing.
+   *
+   * <p>Subclasses should override this to enable equality delete vector support. The default
+   * implementation throws UnsupportedOperationException to allow engines to opt-in to this feature.
+   *
+   * @param row the row to extract from
+   * @param fieldId the field ID to extract
+   * @return the extracted Long value, or null if the field is null
+   * @throws UnsupportedOperationException if equality delete vectors are not supported by this
+   *     engine
+   */
+  protected Long extractEqualityFieldValue(T row, int fieldId) {
+    throw new UnsupportedOperationException(
+        "Equality delete vectors are not supported. "
+            + "Override extractEqualityFieldValue() to enable this feature.");
+  }
 
   @Override
   public DataWriter<T> newDataWriter(
@@ -372,5 +391,37 @@ public abstract class BaseFileWriterFactory<T> implements FileWriterFactory<T>, 
   @Deprecated
   protected Schema positionDeleteRowSchema() {
     return positionDeleteRowSchema;
+  }
+
+  protected Table table() {
+    return table;
+  }
+
+  protected int[] equalityFieldIds() {
+    return equalityFieldIds;
+  }
+
+  /**
+   * Finds the field index for a given field ID in the equality delete schema.
+   *
+   * <p>This method provides shared logic for engine-specific extractEqualityFieldValue implementations.
+   *
+   * @param fieldId the field ID to find
+   * @return the field index in the equality delete schema
+   * @throws IllegalArgumentException if field ID is not found
+   */
+  protected final int findEqualityFieldIndex(int fieldId) {
+    Schema schema = equalityDeleteRowSchema();
+    for (int i = 0; i < schema.columns().size(); i++) {
+      if (schema.columns().get(i).fieldId() == fieldId) {
+        return i;
+      }
+    }
+    throw new IllegalArgumentException(
+        String.format(
+            java.util.Locale.ROOT,
+            "Field ID %d not found in equality delete schema %s",
+            fieldId,
+            schema));
   }
 }

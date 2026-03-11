@@ -22,6 +22,7 @@ import java.util.List;
 import org.apache.iceberg.IsolationLevel;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableUtil;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.spark.sql.SparkSession;
@@ -115,6 +116,40 @@ class SparkPositionDeltaOperation implements RowLevelOperation, SupportsDelta {
   public NamedReference[] rowId() {
     NamedReference file = Expressions.column(MetadataColumns.FILE_PATH.name());
     NamedReference pos = Expressions.column(MetadataColumns.ROW_POSITION.name());
+
+    boolean equalityDeleteVectorsEnabled =
+        "true"
+            .equalsIgnoreCase(table.properties().get(TableProperties.EQUALITY_DELETE_VECTOR_ENABLED));
+
+    if (equalityDeleteVectorsEnabled) {
+      org.apache.iceberg.types.Types.NestedField field = null;
+
+      // 1. Identifier fields
+      if (!table.schema().identifierFieldIds().isEmpty()) {
+        int fieldId = table.schema().identifierFieldIds().iterator().next();
+        field = table.schema().findField(fieldId);
+      }
+
+      // 2. 'id' field
+      if (field == null) {
+        field = table.schema().findField("id");
+      }
+
+      // 3. First LONG field
+      if (field == null) {
+        for (org.apache.iceberg.types.Types.NestedField f : table.schema().columns()) {
+          if (f.type().typeId() == org.apache.iceberg.types.Type.TypeID.LONG) {
+            field = f;
+            break;
+          }
+        }
+      }
+
+      if (field != null) {
+        return new NamedReference[] {file, pos, Expressions.column(field.name())};
+      }
+    }
+
     return new NamedReference[] {file, pos};
   }
 

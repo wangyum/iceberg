@@ -44,6 +44,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.SnapshotUpdate;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.data.BaseDeleteLoader;
 import org.apache.iceberg.data.DeleteLoader;
 import org.apache.iceberg.deletes.DeleteGranularity;
@@ -63,6 +64,7 @@ import org.apache.iceberg.io.FanoutPositionOnlyDeleteWriter;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.io.PartitioningDVWriter;
+import org.apache.iceberg.io.PartitioningEqualityDVWriter;
 import org.apache.iceberg.io.PartitioningWriter;
 import org.apache.iceberg.io.PositionDeltaWriter;
 import org.apache.iceberg.io.WriteResult;
@@ -140,7 +142,7 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
     this.branch = writeConf.branch();
     this.extraSnapshotMetadata = writeConf.extraSnapshotMetadata();
     this.writeRequirements = writeConf.positionDeltaRequirements(command);
-    this.context = new Context(dataSchema, writeConf, info, writeRequirements);
+    this.context = new Context(dataSchema, writeConf, info, writeRequirements, command, table);
     this.writeProperties = writeConf.writeProperties();
   }
 
@@ -446,10 +448,59 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
               .build();
 
       if (command == DELETE) {
-        return new DeleteOnlyDeltaWriter(
-            table, rewritableDeletes(), writerFactory, deleteFileFactory, context);
+        if (context.useEqualityDeleteVectors()) {
+          // Use equality delete vector writer for DELETE with equality-vector enabled
+          int equalityFieldId = findEqualityFieldId(table);
+          System.err.println(
+              String.format(
+                  "Creating EqualityDeleteOnlyDeltaWriter for DELETE command (field=%d)",
+                  equalityFieldId));
+          return new EqualityDeleteOnlyDeltaWriter(
+              table, deleteFileFactory, context, equalityFieldId);
+        } else {
+          System.err.println("Creating DeleteOnlyDeltaWriter for DELETE command");
+          return new DeleteOnlyDeltaWriter(
+              table, rewritableDeletes(), writerFactory, deleteFileFactory, context);
+        }
+
+      } else if (command == MERGE && context.useEqualityDeleteVectors()) {
+        EqualityDeleteOnlyDeltaWriter equalityDeleteWriter = null;
+        if (context.useEqualityDeleteVectors()) {
+          int equalityFieldId = findEqualityFieldId(table);
+          equalityDeleteWriter = new EqualityDeleteOnlyDeltaWriter(
+              table, deleteFileFactory, context, equalityFieldId);
+        }
+
+        if (table.spec().isUnpartitioned()) {
+           return new UnpartitionedDeltaWriter(
+              table,
+              rewritableDeletes(),
+              writerFactory,
+              dataFileFactory,
+              deleteFileFactory,
+              new ExtractRowLineage(context.dataSchema()),
+              context,
+              equalityDeleteWriter);
+        } else {
+           return new PartitionedDeltaWriter(
+              table,
+              rewritableDeletes(),
+              writerFactory,
+              dataFileFactory,
+              deleteFileFactory,
+              new ExtractRowLineage(context.dataSchema()),
+              context,
+              equalityDeleteWriter);
+        }
 
       } else if (table.spec().isUnpartitioned()) {
+        EqualityDeleteOnlyDeltaWriter equalityDeleteWriter = null;
+        if (context.useEqualityDeleteVectors()) {
+           int equalityFieldId = findEqualityFieldId(table);
+           equalityDeleteWriter = new EqualityDeleteOnlyDeltaWriter(
+               table, deleteFileFactory, context, equalityFieldId);
+        }
+
         return new UnpartitionedDeltaWriter(
             table,
             rewritableDeletes(),
@@ -457,9 +508,17 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
             dataFileFactory,
             deleteFileFactory,
             new ExtractRowLineage(context.dataSchema()),
-            context);
+            context,
+            equalityDeleteWriter);
 
       } else {
+        EqualityDeleteOnlyDeltaWriter equalityDeleteWriter = null;
+        if (context.useEqualityDeleteVectors()) {
+           int equalityFieldId = findEqualityFieldId(table);
+           equalityDeleteWriter = new EqualityDeleteOnlyDeltaWriter(
+               table, deleteFileFactory, context, equalityFieldId);
+        }
+
         return new PartitionedDeltaWriter(
             table,
             rewritableDeletes(),
@@ -467,12 +526,31 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
             dataFileFactory,
             deleteFileFactory,
             new ExtractRowLineage(context.dataSchema()),
-            context);
+            context,
+            equalityDeleteWriter);
       }
     }
 
     private Map<String, DeleteFileSet> rewritableDeletes() {
       return rewritableDeletesBroadcast != null ? rewritableDeletesBroadcast.getValue() : null;
+    }
+
+    private static int findEqualityFieldId(Table table) {
+      // Look for 'id' field first
+      Types.NestedField field = table.schema().findField("id");
+      if (field != null && field.type() instanceof org.apache.iceberg.types.Types.LongType) {
+        return field.fieldId();
+      }
+
+      // Otherwise find first LONG field
+      for (Types.NestedField f : table.schema().columns()) {
+        if (f.type() instanceof org.apache.iceberg.types.Types.LongType) {
+          return f.fieldId();
+        }
+      }
+
+      throw new IllegalStateException(
+          "Cannot find LONG equality field for equality delete vectors");
     }
   }
 
@@ -594,6 +672,13 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
         OutputFileFactory deleteFileFactory,
         Context context) {
 
+      // Use equality delete writer if configured
+      if (context.useEqualityDeleteVectors()) {
+        throw new IllegalStateException(
+            "DeleteOnlyDeltaWriter does not support equality delete vectors. "
+                + "Use EqualityDeleteOnlyDeltaWriter instead.");
+      }
+
       this.delegate =
           newDeleteWriter(table, rewritableDeletes, writerFactory, deleteFileFactory, context);
       this.positionDelete = PositionDelete.create();
@@ -662,6 +747,102 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
     }
   }
 
+  /**
+   * Delta writer that writes equality deletes using bitmap-based equality delete vectors.
+   * Used for UPDATE operations when write.delete.equality-vector.enabled=true.
+   */
+  private static class EqualityDeleteOnlyDeltaWriter extends BaseDeltaWriter {
+    private final Table table;
+    private final PartitioningEqualityDVWriter<Long> delegate;
+    private final FileIO io;
+    private final Map<Integer, PartitionSpec> specs;
+    private final InternalRowWrapper partitionRowWrapper;
+    private final Map<Integer, StructProjection> partitionProjections;
+    private final int specIdOrdinal;
+    private final int partitionOrdinal;
+    private final int equalityFieldOrdinal;
+    private final int equalityFieldId;
+
+    private boolean closed = false;
+
+    EqualityDeleteOnlyDeltaWriter(
+        Table table,
+        OutputFileFactory deleteFileFactory,
+        Context context,
+        int equalityFieldId) {
+
+      this.table = table;
+      this.io = table.io();
+      this.specs = table.specs();
+      this.equalityFieldId = equalityFieldId;
+
+      this.specIdOrdinal = context.specIdOrdinal();
+      this.partitionOrdinal = context.partitionOrdinal();
+      this.equalityFieldOrdinal = context.equalityFieldOrdinal(table);
+
+      this.delegate =
+          new PartitioningEqualityDVWriter<>(
+              deleteFileFactory, equalityFieldId, (value, fieldId) -> value);
+
+      Types.StructType partitionType = Partitioning.partitionType(table);
+      this.partitionRowWrapper = initPartitionRowWrapper(partitionType);
+      this.partitionProjections = buildPartitionProjections(partitionType, specs);
+    }
+
+    @Override
+    public void delete(InternalRow metadata, InternalRow id) throws IOException {
+      int specId = metadata.getInt(specIdOrdinal);
+      PartitionSpec spec = specs.get(specId);
+
+      InternalRow partition = metadata.getStruct(partitionOrdinal, partitionRowWrapper.size());
+      StructProjection partitionProjection = partitionProjections.get(specId);
+      partitionProjection.wrap(partitionRowWrapper.wrap(partition));
+
+      if (!id.isNullAt(equalityFieldOrdinal)) {
+        long equalityValue = id.getLong(equalityFieldOrdinal);
+        if (equalityValue >= 0) {
+          delegate.write(equalityValue, spec, partitionProjection);
+        }
+      }
+    }
+
+    @Override
+    public void update(InternalRow metadata, InternalRow id, InternalRow row) {
+      throw new UnsupportedOperationException(
+          this.getClass().getName() + " does not implement update");
+    }
+
+    @Override
+    public void insert(InternalRow row) throws IOException {
+      throw new UnsupportedOperationException(
+          this.getClass().getName() + " does not implement insert");
+    }
+
+    @Override
+    public WriterCommitMessage commit() throws IOException {
+      close();
+
+      DeleteWriteResult result = delegate.result();
+      return new DeltaTaskCommit(result);
+    }
+
+    @Override
+    public void abort() throws IOException {
+      close();
+
+      DeleteWriteResult result = delegate.result();
+      SparkCleanupUtil.deleteTaskFiles(io, result.deleteFiles());
+    }
+
+    @Override
+    public void close() throws IOException {
+      if (!closed) {
+        delegate.close();
+        this.closed = true;
+      }
+    }
+  }
+
   @SuppressWarnings("checkstyle:VisibilityModifier")
   private abstract static class DeleteAndDataDeltaWriter extends BaseDeltaWriter {
     protected final PositionDeltaWriter<InternalRow> delegate;
@@ -675,6 +856,7 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
     private final int partitionOrdinal;
     private final int fileOrdinal;
     private final int positionOrdinal;
+    private final EqualityDeleteOnlyDeltaWriter equalityDeleteWriter;
     private boolean closed = false;
 
     DeleteAndDataDeltaWriter(
@@ -684,7 +866,8 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
         OutputFileFactory dataFileFactory,
         OutputFileFactory deleteFileFactory,
         Function<InternalRow, InternalRow> rowLineageExtractor,
-        Context context) {
+        Context context,
+        EqualityDeleteOnlyDeltaWriter equalityDeleteWriter) {
 
       this.delegate =
           new BasePositionDeltaWriter<>(
@@ -692,6 +875,7 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
               newDeleteWriter(table, rewritableDeletes, writerFactory, deleteFileFactory, context));
       this.io = table.io();
       this.specs = table.specs();
+      this.equalityDeleteWriter = equalityDeleteWriter;
 
       Types.StructType partitionType = Partitioning.partitionType(table);
       this.deletePartitionRowWrapper = initPartitionRowWrapper(partitionType);
@@ -707,16 +891,20 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
 
     @Override
     public void delete(InternalRow meta, InternalRow id) throws IOException {
-      int specId = meta.getInt(specIdOrdinal);
-      PartitionSpec spec = specs.get(specId);
+      if (equalityDeleteWriter != null) {
+        equalityDeleteWriter.delete(meta, id);
+      } else {
+        int specId = meta.getInt(specIdOrdinal);
+        PartitionSpec spec = specs.get(specId);
 
-      InternalRow partition = meta.getStruct(partitionOrdinal, deletePartitionRowWrapper.size());
-      StructProjection partitionProjection = deletePartitionProjections.get(specId);
-      partitionProjection.wrap(deletePartitionRowWrapper.wrap(partition));
+        InternalRow partition = meta.getStruct(partitionOrdinal, deletePartitionRowWrapper.size());
+        StructProjection partitionProjection = deletePartitionProjections.get(specId);
+        partitionProjection.wrap(deletePartitionRowWrapper.wrap(partition));
 
-      String file = id.getString(fileOrdinal);
-      long position = id.getLong(positionOrdinal);
-      delegate.delete(file, position, spec, partitionProjection);
+        String file = id.getString(fileOrdinal);
+        long position = id.getLong(positionOrdinal);
+        delegate.delete(file, position, spec, partitionProjection);
+      }
     }
 
     @Override
@@ -724,12 +912,35 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
       close();
 
       WriteResult result = delegate.result();
+
+      if (equalityDeleteWriter != null) {
+        WriterCommitMessage eqMsg = equalityDeleteWriter.commit();
+        DeltaTaskCommit eqCommit = (DeltaTaskCommit) eqMsg;
+
+        List<DeleteFile> allDeleteFiles = Lists.newArrayList();
+        allDeleteFiles.addAll(Arrays.asList(result.deleteFiles()));
+        allDeleteFiles.addAll(Arrays.asList(eqCommit.deleteFiles()));
+
+        WriteResult mergedResult = WriteResult.builder()
+            .addDataFiles(result.dataFiles())
+            .addDeleteFiles(allDeleteFiles)
+            .addReferencedDataFiles(result.referencedDataFiles())
+            .addRewrittenDeleteFiles(result.rewrittenDeleteFiles())
+            .build();
+
+        return new DeltaTaskCommit(mergedResult);
+      }
+
       return new DeltaTaskCommit(result);
     }
 
     @Override
     public void abort() throws IOException {
       close();
+
+      if (equalityDeleteWriter != null) {
+        equalityDeleteWriter.abort();
+      }
 
       WriteResult result = delegate.result();
       SparkCleanupUtil.deleteTaskFiles(io, files(result));
@@ -746,6 +957,9 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
     public void close() throws IOException {
       if (!closed) {
         delegate.close();
+        if (equalityDeleteWriter != null) {
+          equalityDeleteWriter.close();
+        }
         this.closed = true;
       }
     }
@@ -766,7 +980,8 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
         OutputFileFactory dataFileFactory,
         OutputFileFactory deleteFileFactory,
         Function<InternalRow, InternalRow> rowLineageFromMetadata,
-        Context context) {
+        Context context,
+        EqualityDeleteOnlyDeltaWriter equalityDeleteWriter) {
       super(
           table,
           rewritableDeletes,
@@ -774,7 +989,8 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
           dataFileFactory,
           deleteFileFactory,
           rowLineageFromMetadata,
-          context);
+          context,
+          equalityDeleteWriter);
       this.dataSpec = table.spec();
     }
 
@@ -806,7 +1022,8 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
         OutputFileFactory dataFileFactory,
         OutputFileFactory deleteFileFactory,
         Function<InternalRow, InternalRow> rowLineageFromMetadata,
-        Context context) {
+        Context context,
+        EqualityDeleteOnlyDeltaWriter equalityDeleteWriter) {
       super(
           table,
           rewritableDeletes,
@@ -814,7 +1031,8 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
           dataFileFactory,
           deleteFileFactory,
           rowLineageFromMetadata,
-          context);
+          context,
+          equalityDeleteWriter);
 
       this.dataSpec = table.spec();
       this.dataPartitionKey = new PartitionKey(dataSpec, context.dataSchema());
@@ -853,12 +1071,16 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
     private final String queryId;
     private final boolean useFanoutWriter;
     private final boolean inputOrdered;
+    private final boolean useEqualityDeleteVectors;
+    private final Command command;
 
     Context(
         Schema dataSchema,
         SparkWriteConf writeConf,
         LogicalWriteInfo info,
-        SparkWriteRequirements writeRequirements) {
+        SparkWriteRequirements writeRequirements,
+        Command command,
+        Table table) {
       this.dataSchema = dataSchema;
       this.dataSparkType = info.schema();
       if (dataSchema != null && dataSchema.findField(MetadataColumns.ROW_ID.fieldId()) != null) {
@@ -878,6 +1100,19 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
       this.queryId = info.queryId();
       this.useFanoutWriter = writeConf.useFanoutWriter(writeRequirements);
       this.inputOrdered = writeRequirements.hasOrdering();
+      this.command = command;
+
+      // Check if we should use equality delete vectors
+      String propValue = table.properties().get(TableProperties.EQUALITY_DELETE_VECTOR_ENABLED);
+      this.useEqualityDeleteVectors =
+          (command == DELETE || command == UPDATE || command == MERGE) &&
+          "true".equalsIgnoreCase(propValue) &&
+          deleteFileFormat == FileFormat.PUFFIN;
+
+      System.err.println(
+          String.format(
+              "Context init: command=%s, propValue=%s, deleteFileFormat=%s, useEqualityDeleteVectors=%b",
+              command, propValue, deleteFileFormat, useEqualityDeleteVectors));
     }
 
     Schema dataSchema() {
@@ -931,6 +1166,14 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
       return deleteFileFormat == FileFormat.PUFFIN;
     }
 
+    boolean useEqualityDeleteVectors() {
+      return useEqualityDeleteVectors;
+    }
+
+    Command command() {
+      return command;
+    }
+
     int specIdOrdinal() {
       return metadataSparkType.fieldIndex(MetadataColumns.SPEC_ID.name());
     }
@@ -945,6 +1188,38 @@ class SparkPositionDeltaWrite extends BaseSparkWrite
 
     int positionOrdinal() {
       return deleteSparkType.fieldIndex(MetadataColumns.ROW_POSITION.name());
+    }
+
+    int equalityFieldOrdinal(Table table) {
+      if (!useEqualityDeleteVectors) {
+        return -1;
+      }
+      int fieldId = findEqualityFieldId(table);
+      String fieldName = table.schema().findField(fieldId).name();
+      return deleteSparkType.fieldIndex(fieldName);
+    }
+
+    private static int findEqualityFieldId(Table table) {
+      // 1. Identifier fields
+      if (!table.schema().identifierFieldIds().isEmpty()) {
+        return table.schema().identifierFieldIds().iterator().next();
+      }
+
+      // 2. Look for 'id' field first
+      Types.NestedField field = table.schema().findField("id");
+      if (field != null && field.type() instanceof org.apache.iceberg.types.Types.LongType) {
+        return field.fieldId();
+      }
+
+      // 3. Otherwise find first LONG field
+      for (Types.NestedField f : table.schema().columns()) {
+        if (f.type() instanceof org.apache.iceberg.types.Types.LongType) {
+          return f.fieldId();
+        }
+      }
+
+      throw new IllegalStateException(
+          "Cannot find LONG equality field for equality delete vectors");
     }
   }
 }

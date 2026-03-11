@@ -457,17 +457,17 @@ public class TestDeleteFiles extends TestBase {
 
     assertThatThrownBy(builder::build)
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessage("Content offset is required for DV");
+        .hasMessage("Content offset is required for PUFFIN files");
 
     builder.withContentOffset(1);
     assertThatThrownBy(builder::build)
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessage("Content size is required for DV");
+        .hasMessage("Content size is required for PUFFIN files");
 
     builder.withContentSizeInBytes(10);
     assertThatThrownBy(builder::build)
         .isInstanceOf(IllegalArgumentException.class)
-        .hasMessage("Referenced data file is required for DV");
+        .hasMessage("Referenced data file is required for position DV");
   }
 
   @TestTemplate

@@ -24,7 +24,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.DeleteWriteResult;
 
-/** A deletion vector file writer. */
+/** A deletion vector file writer for position deletes. */
 public interface DVFileWriter extends Closeable {
   /**
    * Marks a position in a given data file as deleted.

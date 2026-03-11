@@ -369,6 +369,30 @@ public class TableProperties {
 
   public static final String DELETE_DISTRIBUTION_MODE = "write.delete.distribution-mode";
 
+  /**
+   * Controls whether to use bitmap-based equality delete vectors for LONG columns.
+   *
+   * <p>When enabled, equality deletes on a single LONG column will be stored as Roaring bitmaps in
+   * Puffin files instead of traditional Parquet/Avro/ORC formats, providing 40-100x storage
+   * reduction.
+   *
+   * <p>Only applies when:
+   *
+   * <ul>
+   *   <li>Table format version >= 3 (Puffin support required)
+   *   <li>Single equality field (not composite keys)
+   *   <li>Field type is LONG (not INT or other types)
+   *   <li>All delete values are non-negative (>= 0)
+   *   <li>No NULL values in deletes
+   * </ul>
+   *
+   * <p>Falls back to traditional equality deletes if any constraint is violated.
+   */
+  public static final String EQUALITY_DELETE_VECTOR_ENABLED =
+      "write.delete.equality-vector.enabled";
+
+  public static final boolean EQUALITY_DELETE_VECTOR_ENABLED_DEFAULT = false;
+
   public static final String UPDATE_ISOLATION_LEVEL = "write.update.isolation-level";
   public static final String UPDATE_ISOLATION_LEVEL_DEFAULT = "serializable";
 
