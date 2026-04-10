@@ -104,6 +104,7 @@ antlr-runtime = { module = "org.antlr:antlr4-runtime", version.ref = "antlr" }
 antlr-antlr413 = { module = "org.antlr:antlr4", version.ref = "antlr413" }
 antlr-runtime413 = { module = "org.antlr:antlr4-runtime", version.ref = "antlr413" }
 arrow-memory-netty = { module = "org.apache.arrow:arrow-memory-netty", version.ref = "arrow" }
+arrow-memory-unsafe = { module = "org.apache.arrow:arrow-memory-unsafe", version.ref = "arrow" }
 arrow-vector = { module = "org.apache.arrow:arrow-vector", version.ref = "arrow" }
 avro-avro = { module = "org.apache.avro:avro", version.ref = "avro" }
 awssdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "awssdk-bom" }

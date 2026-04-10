@@ -953,6 +953,9 @@ project(':iceberg-arrow') {
       exclude group: 'io.netty', module: 'netty-common'
       exclude group: 'io.netty', module: 'netty-buffer'
     }
+    implementation(libs.arrow.memory.unsafe) {
+      exclude group: 'com.google.code.findbugs', module: 'jsr305'
+    }
 
     runtimeOnly libs.netty.buffer
 
