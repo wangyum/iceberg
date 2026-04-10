@@ -948,12 +948,15 @@ project(':iceberg-arrow') {
       exclude group: 'io.netty', module: 'netty-common'
       exclude group: 'com.google.code.findbugs', module: 'jsr305'
     }
-    implementation(libs.arrow.memory.netty) {
-      exclude group: 'com.google.code.findbugs', module: 'jsr305'
-      exclude group: 'io.netty', module: 'netty-common'
+    implementation(libs.arrow.memory.unsafe) {
       exclude group: 'io.netty', module: 'netty-buffer'
+      exclude group: 'io.netty', module: 'netty-common'
+      exclude group: 'com.google.code.findbugs', module: 'jsr305'
     }
-
+    // netty-buffer is not a transitive dep of arrow-vector or arrow-memory-unsafe;
+    // it must be declared explicitly so downstream modules (e.g. Spark) that
+    // exclude netty from their own deps and rely on iceberg-arrow to supply it
+    // continue to find it on the runtime classpath.
     runtimeOnly libs.netty.buffer
 
     implementation(libs.parquet.avro) {
@@ -964,10 +967,9 @@ project(':iceberg-arrow') {
     }
 
     testImplementation project(path: ':iceberg-core', configuration: 'testArtifacts')
-    // To run ArrowReaderTest test cases, :netty-common is needed.
-    // We import :netty-common through :arrow-memory-netty
-    // so that the same version as used by the :arrow-memory-netty module is picked.
-    testImplementation libs.arrow.memory.netty
+    // ArrowReaderTest requires netty-common; pull it in directly without
+    // bringing in arrow-memory-netty's broken allocator (fails on Java 25).
+    testImplementation libs.netty.common
     testImplementation libs.hadoop3.common
     testImplementation libs.hadoop3.mapreduce.client.core
   }

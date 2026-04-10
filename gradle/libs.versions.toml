@@ -103,7 +103,7 @@ antlr-antlr4 = { module = "org.antlr:antlr4", version.ref = "antlr" }
 antlr-runtime = { module = "org.antlr:antlr4-runtime", version.ref = "antlr" }
 antlr-antlr413 = { module = "org.antlr:antlr4", version.ref = "antlr413" }
 antlr-runtime413 = { module = "org.antlr:antlr4-runtime", version.ref = "antlr413" }
-arrow-memory-netty = { module = "org.apache.arrow:arrow-memory-netty", version.ref = "arrow" }
+arrow-memory-unsafe = { module = "org.apache.arrow:arrow-memory-unsafe", version.ref = "arrow" }
 arrow-vector = { module = "org.apache.arrow:arrow-vector", version.ref = "arrow" }
 avro-avro = { module = "org.apache.avro:avro", version.ref = "avro" }
 awssdk-bom = { module = "software.amazon.awssdk:bom", version.ref = "awssdk-bom" }
@@ -165,6 +165,7 @@ lz4Java = { module = "at.yawk.lz4:lz4-java", version.ref = "lz4Java" }
 microprofile-openapi-api = { module = "org.eclipse.microprofile.openapi:microprofile-openapi-api", version.ref = "microprofile-openapi-api" }
 nessie-client = { module = "org.projectnessie.nessie:nessie-client", version.ref = "nessie" }
 netty-buffer = { module = "io.netty:netty-buffer", version.ref = "netty-buffer" }
+netty-common = { module = "io.netty:netty-common", version.ref = "netty-buffer" }
 object-client-bundle = { module = "com.emc.ecs:object-client-bundle", version.ref = "object-client-bundle" }
 orc-core = { module = "org.apache.orc:orc-core", version.ref = "orc" }
 parquet-avro = { module = "org.apache.parquet:parquet-avro", version.ref = "parquet" }
