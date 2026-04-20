@@ -209,7 +209,7 @@ public class TestCallStatementParser {
       assertThatThrownBy(() -> parser.parsePlan(sqlText))
           .as("Statement should fail to parse: %s", sqlText)
           .isInstanceOf(IcebergParseException.class)
-          .hasMessageContaining("no viable alternative");
+          .hasMessageContaining("== SQL ==");
     }
   }
 
