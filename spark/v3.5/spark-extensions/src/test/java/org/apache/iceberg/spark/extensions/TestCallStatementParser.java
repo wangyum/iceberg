@@ -151,6 +151,69 @@ public class TestCallStatementParser {
   }
 
   @Test
+  public void testCallWithCurrentTimestampArg() throws ParseException {
+    CallStatement call =
+        (CallStatement)
+            parser.parsePlan(
+                "CALL cat.system.expire_snapshots(table => 'db.tbl', older_than => current_timestamp())");
+    assertThat(seqAsJavaList(call.name())).containsExactly("cat", "system", "expire_snapshots");
+    assertThat(seqAsJavaList(call.args())).hasSize(2);
+
+    NamedArgument arg = checkCast(call.args().apply(1), NamedArgument.class);
+    assertThat(arg.name()).isEqualTo("older_than");
+    assertThat(arg.expr().sql()).containsIgnoringCase("current_timestamp");
+  }
+
+  @Test
+  public void testCallWithCurrentTimestampMinusIntervalArg() throws ParseException {
+    CallStatement call =
+        (CallStatement)
+            parser.parsePlan(
+                "CALL cat.system.expire_snapshots("
+                    + "table => 'db.tbl', "
+                    + "older_than => current_timestamp() - INTERVAL 2 DAYS)");
+    assertThat(seqAsJavaList(call.name())).containsExactly("cat", "system", "expire_snapshots");
+    assertThat(seqAsJavaList(call.args())).hasSize(2);
+
+    NamedArgument arg = checkCast(call.args().apply(1), NamedArgument.class);
+    assertThat(arg.name()).isEqualTo("older_than");
+    assertThat(arg.expr().sql()).containsIgnoringCase("current_timestamp");
+    assertThat(arg.expr().sql()).containsIgnoringCase("interval");
+  }
+
+  @Test
+  public void testCallWithMixedCaseSqlAndLowercaseIntervalArg() throws ParseException {
+    CallStatement call =
+        (CallStatement)
+            parser.parsePlan(
+                "CaLl cat.system.expire_snapshots("
+                    + "table => 'db.tbl', "
+                    + "older_than => Current_Timestamp() - interval 2 days)");
+    assertThat(seqAsJavaList(call.name())).containsExactly("cat", "system", "expire_snapshots");
+    assertThat(seqAsJavaList(call.args())).hasSize(2);
+
+    NamedArgument arg = checkCast(call.args().apply(1), NamedArgument.class);
+    assertThat(arg.name()).isEqualTo("older_than");
+    assertThat(arg.expr().sql()).containsIgnoringCase("current_timestamp");
+    assertThat(arg.expr().sql()).containsIgnoringCase("interval");
+  }
+
+  @Test
+  public void testCallWithUnsupportedIntervalForms() {
+    List<String> unsupportedIntervalForms =
+        Lists.newArrayList(
+            "CALL cat.system.expire_snapshots(table => 'db.tbl', older_than => current_timestamp() - INTERVAL '2' DAYS)",
+            "CALL cat.system.expire_snapshots(table => 'db.tbl', older_than => current_timestamp() - INTERVAL 2 MONTHS)",
+            "CALL cat.system.expire_snapshots(table => 'db.tbl', older_than => current_timestamp() - INTERVAL 2 DAYS - INTERVAL 1 DAYS)");
+
+    for (String sqlText : unsupportedIntervalForms) {
+      assertThatThrownBy(() -> parser.parsePlan(sqlText))
+          .as("Statement should fail to parse: %s", sqlText)
+          .isInstanceOf(IcebergParseException.class);
+    }
+  }
+
+  @Test
   public void testCallWithVarSubstitution() throws ParseException {
     CallStatement call =
         (CallStatement)

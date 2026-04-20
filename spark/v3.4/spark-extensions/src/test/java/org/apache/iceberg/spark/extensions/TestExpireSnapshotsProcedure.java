@@ -155,6 +155,81 @@ public class TestExpireSnapshotsProcedure extends ExtensionsTestBase {
   }
 
   @TestTemplate
+  public void testExpireSnapshotUsingCurrentTimestampFunction() {
+    sql("CREATE TABLE %s (id bigint NOT NULL, data string) USING iceberg", tableName);
+
+    sql("INSERT INTO TABLE %s VALUES (1, 'a')", tableName);
+    sql("INSERT INTO TABLE %s VALUES (2, 'b')", tableName);
+
+    Table table = validationCatalog.loadTable(tableIdent);
+    assertThat(table.snapshots()).as("Should be 2 snapshots").hasSize(2);
+
+    List<Object[]> output =
+        sql(
+            "CALL %s.system.expire_snapshots("
+                + "table => '%s',"
+                + "older_than => current_timestamp(),"
+                + "retain_last => 1)",
+            catalogName, tableIdent);
+
+    assertEquals(
+        "Procedure output must match", ImmutableList.of(row(0L, 0L, 0L, 0L, 1L, 0L)), output);
+
+    table.refresh();
+    assertThat(table.snapshots()).as("Should expire one snapshot").hasSize(1);
+  }
+
+  @TestTemplate
+  public void testExpireSnapshotUsingCurrentTimestampMinusInterval() {
+    sql("CREATE TABLE %s (id bigint NOT NULL, data string) USING iceberg", tableName);
+
+    sql("INSERT INTO TABLE %s VALUES (1, 'a')", tableName);
+    sql("INSERT INTO TABLE %s VALUES (2, 'b')", tableName);
+
+    Table table = validationCatalog.loadTable(tableIdent);
+    assertThat(table.snapshots()).as("Should be 2 snapshots").hasSize(2);
+
+    List<Object[]> output =
+        sql(
+            "CALL %s.system.expire_snapshots("
+                + "table => '%s',"
+                + "older_than => current_timestamp() - INTERVAL 2 DAYS,"
+                + "retain_last => 1)",
+            catalogName, tableIdent);
+
+    assertEquals(
+        "Procedure output must match", ImmutableList.of(row(0L, 0L, 0L, 0L, 0L, 0L)), output);
+
+    table.refresh();
+    assertThat(table.snapshots()).as("Should still have 2 snapshots").hasSize(2);
+  }
+
+  @TestTemplate
+  public void testExpireSnapshotUsingMixedCaseSqlAndLowercaseInterval() {
+    sql("CREATE TABLE %s (id bigint NOT NULL, data string) USING iceberg", tableName);
+
+    sql("INSERT INTO TABLE %s VALUES (1, 'a')", tableName);
+    sql("INSERT INTO TABLE %s VALUES (2, 'b')", tableName);
+
+    Table table = validationCatalog.loadTable(tableIdent);
+    assertThat(table.snapshots()).as("Should be 2 snapshots").hasSize(2);
+
+    List<Object[]> output =
+        sql(
+            "CaLl %s.system.expire_snapshots("
+                + "table => '%s',"
+                + "older_than => Current_Timestamp() - interval 2 days,"
+                + "retain_last => 1)",
+            catalogName, tableIdent);
+
+    assertEquals(
+        "Procedure output must match", ImmutableList.of(row(0L, 0L, 0L, 0L, 0L, 0L)), output);
+
+    table.refresh();
+    assertThat(table.snapshots()).as("Should still have 2 snapshots").hasSize(2);
+  }
+
+  @TestTemplate
   public void testExpireSnapshotsGCDisabled() {
     sql("CREATE TABLE %s (id bigint NOT NULL, data string) USING iceberg", tableName);
 

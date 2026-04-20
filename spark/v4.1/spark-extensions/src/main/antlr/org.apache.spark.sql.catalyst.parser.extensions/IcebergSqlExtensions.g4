@@ -155,6 +155,15 @@ expression
     : constant
     | stringMap
     | stringArray
+    | functionCallExpression (MINUS intervalLiteral)?
+    ;
+
+functionCallExpression
+    : identifier '(' ')'
+    ;
+
+intervalLiteral
+    : INTERVAL number timeUnit
     ;
 
 constant
@@ -209,6 +218,7 @@ fieldList
 nonReserved
     : ADD | ALTER | AS | ASC | BRANCH | BY | CREATE | DAYS | DESC | DROP | EXISTS | FIELD | FIRST | HOURS | IF | LAST | NOT | NULLS | OF | OR | ORDERED | PARTITION | TABLE | WRITE
     | DISTRIBUTED | LOCALLY | MINUTES | MONTHS | UNORDERED | REPLACE | RETAIN | VERSION | WITH | IDENTIFIER_KW | FIELDS | SET | SNAPSHOT | SNAPSHOTS
+    | INTERVAL
     | TAG | TRUE | FALSE
     | MAP
     ;
@@ -243,6 +253,7 @@ FIELDS: 'FIELDS';
 FIRST: 'FIRST';
 HOURS: 'HOURS';
 IF : 'IF';
+INTERVAL: 'INTERVAL';
 LAST: 'LAST';
 LOCALLY: 'LOCALLY';
 MINUTES: 'MINUTES';
