@@ -724,7 +724,8 @@ public class TestExpireSnapshotsProcedure extends ExtensionsTestBase {
     }
   }
 
-  private void assertUnsupportedOlderThanExpression(String callKeyword, String olderThanExpression) {
+  private void assertUnsupportedOlderThanExpression(
+      String callKeyword, String olderThanExpression) {
     Throwable thrown =
         catchThrowable(
             () ->
@@ -738,12 +739,12 @@ public class TestExpireSnapshotsProcedure extends ExtensionsTestBase {
     assertThat(thrown).as("Expression should be rejected: %s", olderThanExpression).isNotNull();
     assertThat(thrown.getMessage()).as("Exception message should be present").isNotNull();
     assertThat(
-            thrown
-                    .getMessage()
-                    .contains("number of args and params must match after binding")
+            thrown.getMessage().contains("number of args and params must match after binding")
                 || thrown.getMessage().contains("PARSE_SYNTAX_ERROR")
                 || thrown.getMessage().contains("mismatched input"))
-        .as("Unexpected error message for expression %s: %s", olderThanExpression, thrown.getMessage())
+        .as(
+            "Unexpected error message for expression %s: %s",
+            olderThanExpression, thrown.getMessage())
         .isTrue();
   }
 }
