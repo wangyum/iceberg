@@ -208,7 +208,8 @@ public class TestCallStatementParser {
     for (String sqlText : unsupportedIntervalForms) {
       assertThatThrownBy(() -> parser.parsePlan(sqlText))
           .as("Statement should fail to parse: %s", sqlText)
-          .isInstanceOf(IcebergParseException.class);
+          .isInstanceOf(IcebergParseException.class)
+          .hasMessageContaining("no viable alternative");
     }
   }
 
