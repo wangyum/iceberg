@@ -23,8 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.Map;
 import org.apache.iceberg.ParameterizedTestExtension;
 import org.apache.iceberg.spark.TestBaseWithCatalog;
-import org.apache.iceberg.spark.source.metrics.AddedDataFiles;
 import org.apache.iceberg.spark.source.metrics.AddedDVFiles;
+import org.apache.iceberg.spark.source.metrics.AddedDataFiles;
 import org.apache.iceberg.spark.source.metrics.AddedDeleteFiles;
 import org.apache.iceberg.spark.source.metrics.AddedEqualityDeleteFiles;
 import org.apache.iceberg.spark.source.metrics.AddedEqualityDeletes;
@@ -217,7 +217,8 @@ public class TestSparkWriteMetrics extends TestBaseWithCatalog {
 
     assertThat(metricsMap).isNotNull();
     assertThat(metricsMap)
-        .hasEntrySatisfying(AddedDeleteFiles.NAME, metric -> assertThat(metric.value()).isEqualTo(1));
+        .hasEntrySatisfying(
+            AddedDeleteFiles.NAME, metric -> assertThat(metric.value()).isEqualTo(1));
     assertThat(metricsMap)
         .hasEntrySatisfying(
             AddedPositionalDeleteFiles.NAME, metric -> assertThat(metric.value()).isEqualTo(0));
