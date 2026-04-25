@@ -75,6 +75,7 @@ public class TestCommitMetricsResultParser {
             .put(SnapshotSummary.ADD_EQ_DELETE_FILES_PROP, "5")
             .put(SnapshotSummary.ADD_POS_DELETE_FILES_PROP, "6")
             .put(SnapshotSummary.ADDED_DVS_PROP, "1")
+            .put(SnapshotSummary.ADDED_DV_FILES_PROP, "1")
             .put(SnapshotSummary.REMOVED_DVS_PROP, "4")
             .put(SnapshotSummary.REMOVED_POS_DELETE_FILES_PROP, "7")
             .put(SnapshotSummary.REMOVED_EQ_DELETE_FILES_PROP, "8")
@@ -108,6 +109,7 @@ public class TestCommitMetricsResultParser {
     assertThat(result.addedEqualityDeleteFiles().value()).isEqualTo(5L);
     assertThat(result.addedPositionalDeleteFiles().value()).isEqualTo(6L);
     assertThat(result.addedDVs().value()).isEqualTo(1L);
+    assertThat(result.addedDVFiles().value()).isEqualTo(1L);
     assertThat(result.removedDVs().value()).isEqualTo(4L);
     assertThat(result.removedPositionalDeleteFiles().value()).isEqualTo(7L);
     assertThat(result.removedEqualityDeleteFiles().value()).isEqualTo(8L);
@@ -166,6 +168,10 @@ public class TestCommitMetricsResultParser {
             + "    \"value\" : 6\n"
             + "  },\n"
             + "  \"added-dvs\" : {\n"
+            + "    \"unit\" : \"count\",\n"
+            + "    \"value\" : 1\n"
+            + "  },\n"
+            + "  \"added-dv-files\" : {\n"
             + "    \"unit\" : \"count\",\n"
             + "    \"value\" : 1\n"
             + "  },\n"

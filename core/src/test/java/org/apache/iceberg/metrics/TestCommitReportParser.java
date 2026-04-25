@@ -104,7 +104,10 @@ public class TestCommitReportParser {
             .put(SnapshotSummary.ADDED_DELETE_FILES_PROP, "4")
             .put(SnapshotSummary.ADD_EQ_DELETE_FILES_PROP, "5")
             .put(SnapshotSummary.ADD_POS_DELETE_FILES_PROP, "6")
+            .put(SnapshotSummary.ADDED_DVS_PROP, "1")
+            .put(SnapshotSummary.ADDED_DV_FILES_PROP, "1")
             .put(SnapshotSummary.REMOVED_POS_DELETE_FILES_PROP, "7")
+            .put(SnapshotSummary.REMOVED_DVS_PROP, "4")
             .put(SnapshotSummary.REMOVED_EQ_DELETE_FILES_PROP, "8")
             .put(SnapshotSummary.REMOVED_DELETE_FILES_PROP, "9")
             .put(SnapshotSummary.TOTAL_DELETE_FILES_PROP, "10")
@@ -172,6 +175,14 @@ public class TestCommitReportParser {
             + "      \"unit\" : \"count\",\n"
             + "      \"value\" : 6\n"
             + "    },\n"
+            + "    \"added-dvs\" : {\n"
+            + "      \"unit\" : \"count\",\n"
+            + "      \"value\" : 1\n"
+            + "    },\n"
+            + "    \"added-dv-files\" : {\n"
+            + "      \"unit\" : \"count\",\n"
+            + "      \"value\" : 1\n"
+            + "    },\n"
             + "    \"removed-delete-files\" : {\n"
             + "      \"unit\" : \"count\",\n"
             + "      \"value\" : 9\n"
@@ -179,6 +190,10 @@ public class TestCommitReportParser {
             + "    \"removed-positional-delete-files\" : {\n"
             + "      \"unit\" : \"count\",\n"
             + "      \"value\" : 7\n"
+            + "    },\n"
+            + "    \"removed-dvs\" : {\n"
+            + "      \"unit\" : \"count\",\n"
+            + "      \"value\" : 4\n"
             + "    },\n"
             + "    \"removed-equality-delete-files\" : {\n"
             + "      \"unit\" : \"count\",\n"

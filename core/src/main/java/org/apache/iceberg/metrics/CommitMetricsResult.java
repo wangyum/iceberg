@@ -35,6 +35,7 @@ public interface CommitMetricsResult {
   String ADDED_EQ_DELETE_FILES = "added-equality-delete-files";
   String ADDED_POS_DELETE_FILES = "added-positional-delete-files";
   String ADDED_DVS = "added-dvs";
+  String ADDED_DV_FILES = "added-dv-files";
   String REMOVED_POS_DELETE_FILES = "removed-positional-delete-files";
   String REMOVED_DVS = "removed-dvs";
   String REMOVED_EQ_DELETE_FILES = "removed-equality-delete-files";
@@ -84,6 +85,12 @@ public interface CommitMetricsResult {
   @Nullable
   @Value.Default
   default CounterResult addedDVs() {
+    return null;
+  }
+
+  @Nullable
+  @Value.Default
+  default CounterResult addedDVFiles() {
     return null;
   }
 
@@ -179,6 +186,7 @@ public interface CommitMetricsResult {
         .addedPositionalDeleteFiles(
             counterFrom(snapshotSummary, SnapshotSummary.ADD_POS_DELETE_FILES_PROP))
         .addedDVs(counterFrom(snapshotSummary, SnapshotSummary.ADDED_DVS_PROP))
+        .addedDVFiles(counterFrom(snapshotSummary, SnapshotSummary.ADDED_DV_FILES_PROP))
         .addedEqualityDeleteFiles(
             counterFrom(snapshotSummary, SnapshotSummary.ADD_EQ_DELETE_FILES_PROP))
         .removedDeleteFiles(counterFrom(snapshotSummary, SnapshotSummary.REMOVED_DELETE_FILES_PROP))

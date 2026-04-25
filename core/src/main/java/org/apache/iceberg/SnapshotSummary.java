@@ -25,6 +25,7 @@ import org.apache.iceberg.relocated.com.google.common.base.Joiner.MapJoiner;
 import org.apache.iceberg.relocated.com.google.common.base.Strings;
 import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
+import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.iceberg.util.ScanTaskUtil;
 
@@ -38,6 +39,7 @@ public class SnapshotSummary {
   public static final String ADD_POS_DELETE_FILES_PROP = "added-position-delete-files";
   public static final String REMOVED_POS_DELETE_FILES_PROP = "removed-position-delete-files";
   public static final String ADDED_DVS_PROP = "added-dvs";
+  public static final String ADDED_DV_FILES_PROP = "added-dv-files";
   public static final String REMOVED_DVS_PROP = "removed-dvs";
   public static final String REMOVED_DELETE_FILES_PROP = "removed-delete-files";
   public static final String TOTAL_DELETE_FILES_PROP = "total-delete-files";
@@ -230,6 +232,7 @@ public class SnapshotSummary {
     private int addedPosDeleteFiles = 0;
     private int removedPosDeleteFiles = 0;
     private int addedDVs = 0;
+    private final Set<String> addedDVPaths = Sets.newHashSet();
     private int removedDVs = 0;
     private int addedDeleteFiles = 0;
     private int removedDeleteFiles = 0;
@@ -253,6 +256,7 @@ public class SnapshotSummary {
       this.addedDeleteFiles = 0;
       this.removedDeleteFiles = 0;
       this.addedDVs = 0;
+      this.addedDVPaths.clear();
       this.removedDVs = 0;
       this.addedRecords = 0L;
       this.deletedRecords = 0L;
@@ -274,6 +278,7 @@ public class SnapshotSummary {
       setIf(addedDeleteFiles > 0, builder, ADDED_DELETE_FILES_PROP, addedDeleteFiles);
       setIf(removedDeleteFiles > 0, builder, REMOVED_DELETE_FILES_PROP, removedDeleteFiles);
       setIf(addedDVs > 0, builder, ADDED_DVS_PROP, addedDVs);
+      setIf(!addedDVPaths.isEmpty(), builder, ADDED_DV_FILES_PROP, addedDVPaths.size());
       setIf(removedDVs > 0, builder, REMOVED_DVS_PROP, removedDVs);
       setIf(addedRecords > 0, builder, ADDED_RECORDS_PROP, addedRecords);
       setIf(deletedRecords > 0, builder, DELETED_RECORDS_PROP, deletedRecords);
@@ -299,6 +304,7 @@ public class SnapshotSummary {
           DeleteFile deleteFile = (DeleteFile) file;
           if (ContentFileUtil.isDV(deleteFile)) {
             this.addedDVs += 1;
+            this.addedDVPaths.add(deleteFile.location().toString());
           } else {
             this.addedPosDeleteFiles += 1;
           }
@@ -368,6 +374,7 @@ public class SnapshotSummary {
       this.addedPosDeleteFiles += other.addedPosDeleteFiles;
       this.removedPosDeleteFiles += other.removedPosDeleteFiles;
       this.addedDVs += other.addedDVs;
+      this.addedDVPaths.addAll(other.addedDVPaths);
       this.removedDVs += other.removedDVs;
       this.addedDeleteFiles += other.addedDeleteFiles;
       this.removedDeleteFiles += other.removedDeleteFiles;

@@ -86,6 +86,11 @@ class CommitMetricsResultParser {
       CounterResultParser.toJson(metrics.addedDVs(), gen);
     }
 
+    if (null != metrics.addedDVFiles()) {
+      gen.writeFieldName(CommitMetricsResult.ADDED_DV_FILES);
+      CounterResultParser.toJson(metrics.addedDVFiles(), gen);
+    }
+
     if (null != metrics.removedDeleteFiles()) {
       gen.writeFieldName(CommitMetricsResult.REMOVED_DELETE_FILES);
       CounterResultParser.toJson(metrics.removedDeleteFiles(), gen);
@@ -217,6 +222,7 @@ class CommitMetricsResultParser {
         .addedPositionalDeleteFiles(
             CounterResultParser.fromJson(CommitMetricsResult.ADDED_POS_DELETE_FILES, json))
         .addedDVs(CounterResultParser.fromJson(CommitMetricsResult.ADDED_DVS, json))
+        .addedDVFiles(CounterResultParser.fromJson(CommitMetricsResult.ADDED_DV_FILES, json))
         .removedEqualityDeleteFiles(
             CounterResultParser.fromJson(CommitMetricsResult.REMOVED_EQ_DELETE_FILES, json))
         .removedPositionalDeleteFiles(

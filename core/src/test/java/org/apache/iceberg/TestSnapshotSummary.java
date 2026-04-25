@@ -395,12 +395,13 @@ public class TestSnapshotSummary extends TestBase {
     long totalPosDeletes1 = dv1.recordCount() + dv2.recordCount();
     long totalFileSize1 = dv1.contentSizeInBytes() + dv2.contentSizeInBytes();
     assertThat(summary1)
-        .hasSize(15)
+        .hasSize(16)
         .doesNotContainKey(SnapshotSummary.ADD_POS_DELETE_FILES_PROP)
         .doesNotContainKey(SnapshotSummary.REMOVED_POS_DELETE_FILES_PROP)
         .containsEntry(SnapshotSummary.ADDED_DELETE_FILES_PROP, "1")
         .doesNotContainKey(SnapshotSummary.REMOVED_DELETE_FILES_PROP)
         .containsEntry(SnapshotSummary.ADDED_DVS_PROP, "1")
+        .containsEntry(SnapshotSummary.ADDED_DV_FILES_PROP, "1")
         .doesNotContainKey(SnapshotSummary.REMOVED_DVS_PROP)
         .containsEntry(SnapshotSummary.ADDED_POS_DELETES_PROP, String.valueOf(addedPosDeletes1))
         .doesNotContainKey(SnapshotSummary.REMOVED_POS_DELETES_PROP)
@@ -434,12 +435,13 @@ public class TestSnapshotSummary extends TestBase {
     long totalPosDeletes2 = dv3.recordCount();
     long totalFileSize2 = dv3.contentSizeInBytes();
     assertThat(summary2)
-        .hasSize(19)
+        .hasSize(20)
         .doesNotContainKey(SnapshotSummary.ADD_POS_DELETE_FILES_PROP)
         .doesNotContainKey(SnapshotSummary.REMOVED_POS_DELETE_FILES_PROP)
         .containsEntry(SnapshotSummary.ADDED_DELETE_FILES_PROP, "1")
         .containsEntry(SnapshotSummary.REMOVED_DELETE_FILES_PROP, "2")
         .containsEntry(SnapshotSummary.ADDED_DVS_PROP, "1")
+        .containsEntry(SnapshotSummary.ADDED_DV_FILES_PROP, "1")
         .containsEntry(SnapshotSummary.REMOVED_DVS_PROP, "2")
         .containsEntry(SnapshotSummary.ADDED_POS_DELETES_PROP, String.valueOf(addedPosDeletes2))
         .containsEntry(SnapshotSummary.REMOVED_POS_DELETES_PROP, String.valueOf(removedPosDeletes2))
@@ -455,6 +457,28 @@ public class TestSnapshotSummary extends TestBase {
         .containsEntry(SnapshotSummary.CREATED_MANIFESTS_COUNT, "3")
         .containsEntry(SnapshotSummary.KEPT_MANIFESTS_COUNT, "0")
         .containsEntry(SnapshotSummary.REPLACED_MANIFESTS_COUNT, "2");
+  }
+
+  @TestTemplate
+  public void testAddedDVFilesCountsDistinctContainers() {
+    assumeThat(formatVersion).isGreaterThanOrEqualTo(3);
+
+    DeleteFile dv1 =
+        FileMetadata.deleteFileBuilder(SPEC)
+            .copy(newDV(FILE_A))
+            .withPath("/path/to/shared-container.puffin")
+            .build();
+    DeleteFile dv2 =
+        FileMetadata.deleteFileBuilder(SPEC)
+            .copy(newDV(FILE_B))
+            .withPath("/path/to/shared-container.puffin")
+            .build();
+
+    table.newRowDelta().addDeletes(dv1).addDeletes(dv2).commit();
+
+    assertThat(table.currentSnapshot().summary())
+        .containsEntry(SnapshotSummary.ADDED_DVS_PROP, "2")
+        .containsEntry(SnapshotSummary.ADDED_DV_FILES_PROP, "1");
   }
 
   @TestTemplate

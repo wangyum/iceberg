@@ -24,6 +24,7 @@ import java.util.Map;
 import org.apache.iceberg.ParameterizedTestExtension;
 import org.apache.iceberg.spark.TestBaseWithCatalog;
 import org.apache.iceberg.spark.source.metrics.AddedDataFiles;
+import org.apache.iceberg.spark.source.metrics.AddedDVFiles;
 import org.apache.iceberg.spark.source.metrics.AddedDeleteFiles;
 import org.apache.iceberg.spark.source.metrics.AddedEqualityDeleteFiles;
 import org.apache.iceberg.spark.source.metrics.AddedEqualityDeletes;
@@ -104,6 +105,7 @@ public class TestSparkWriteMetrics extends TestBaseWithCatalog {
     // Verify other metrics are 0
     String[] zeroMetrics = {
       AddedDeleteFiles.NAME,
+      AddedDVFiles.NAME,
       AddedEqualityDeleteFiles.NAME,
       AddedPositionalDeleteFiles.NAME,
       AddedEqualityDeletes.NAME,
@@ -177,6 +179,7 @@ public class TestSparkWriteMetrics extends TestBaseWithCatalog {
     // Verify other metrics are 0
     String[] zeroMetrics = {
       AddedDataFiles.NAME,
+      AddedDVFiles.NAME,
       AddedEqualityDeleteFiles.NAME,
       AddedEqualityDeletes.NAME,
       AddedRecords.NAME,

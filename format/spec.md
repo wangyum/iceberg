@@ -1791,6 +1791,7 @@ Snapshot summary can include metrics fields to track numeric stats of the snapsh
 | **`added-position-delete-files`**   | Number of position delete files added in the snapshot                                            |
 | **`removed-position-delete-files`** | Number of position delete files removed in the snapshot                                          |
 | **`added-dvs`**                     | Number of deletion vectors added in the snapshot                                                 |
+| **`added-dv-files`**                | Number of distinct Puffin files that contain added deletion vectors in the snapshot              |
 | **`removed-dvs`**                   | Number of deletion vectors removed in the snapshot                                               |
 | **`removed-delete-files`**          | Number of positional/equality delete files and deletion vectors removed in the snapshot          |
 | **`total-delete-files`**            | Total number of live positional/equality delete files and deletion vectors in the snapshot       |

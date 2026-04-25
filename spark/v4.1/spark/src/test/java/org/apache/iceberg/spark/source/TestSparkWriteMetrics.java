@@ -24,6 +24,7 @@ import java.util.Map;
 import org.apache.iceberg.ParameterizedTestExtension;
 import org.apache.iceberg.spark.TestBaseWithCatalog;
 import org.apache.iceberg.spark.source.metrics.AddedDataFiles;
+import org.apache.iceberg.spark.source.metrics.AddedDVFiles;
 import org.apache.iceberg.spark.source.metrics.AddedDeleteFiles;
 import org.apache.iceberg.spark.source.metrics.AddedEqualityDeleteFiles;
 import org.apache.iceberg.spark.source.metrics.AddedEqualityDeletes;
@@ -104,6 +105,7 @@ public class TestSparkWriteMetrics extends TestBaseWithCatalog {
     // Verify other metrics are 0
     String[] zeroMetrics = {
       AddedDeleteFiles.NAME,
+      AddedDVFiles.NAME,
       AddedEqualityDeleteFiles.NAME,
       AddedPositionalDeleteFiles.NAME,
       AddedEqualityDeletes.NAME,
@@ -177,6 +179,7 @@ public class TestSparkWriteMetrics extends TestBaseWithCatalog {
     // Verify other metrics are 0
     String[] zeroMetrics = {
       AddedDataFiles.NAME,
+      AddedDVFiles.NAME,
       AddedEqualityDeleteFiles.NAME,
       AddedEqualityDeletes.NAME,
       AddedRecords.NAME,
@@ -194,6 +197,35 @@ public class TestSparkWriteMetrics extends TestBaseWithCatalog {
       assertThat(metricsMap)
           .hasEntrySatisfying(metric, m -> assertThat(m.value()).as(metric).isEqualTo(0));
     }
+  }
+
+  @TestTemplate
+  public void deleteMetricsWithDVs() throws NoSuchTableException {
+    sql(
+        "CREATE TABLE %s (id BIGINT) USING iceberg "
+            + "TBLPROPERTIES ('format-version'='3', 'write.delete.mode'='merge-on-read')",
+        tableName);
+
+    spark.range(100).coalesce(1).writeTo(tableName).append();
+
+    String deleteSql = String.format("DELETE FROM %s WHERE id = 1", tableName);
+    Dataset<Row> result = spark.sql(deleteSql);
+    result.collect();
+
+    SparkPlan plan = result.queryExecution().executedPlan();
+    Map<String, SQLMetric> metricsMap = findMetrics(plan, AddedDeleteFiles.NAME);
+
+    assertThat(metricsMap).isNotNull();
+    assertThat(metricsMap)
+        .hasEntrySatisfying(AddedDeleteFiles.NAME, metric -> assertThat(metric.value()).isEqualTo(1));
+    assertThat(metricsMap)
+        .hasEntrySatisfying(
+            AddedPositionalDeleteFiles.NAME, metric -> assertThat(metric.value()).isEqualTo(0));
+    assertThat(metricsMap)
+        .hasEntrySatisfying(AddedDVFiles.NAME, metric -> assertThat(metric.value()).isEqualTo(1));
+    assertThat(metricsMap)
+        .hasEntrySatisfying(
+            AddedPositionalDeletes.NAME, metric -> assertThat(metric.value()).isEqualTo(1));
   }
 
   private Map<String, SQLMetric> findMetrics(SparkPlan plan, String metricName) {

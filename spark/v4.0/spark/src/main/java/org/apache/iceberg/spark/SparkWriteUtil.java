@@ -35,6 +35,7 @@ import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.relocated.com.google.common.collect.ObjectArrays;
 import org.apache.iceberg.spark.source.metrics.AddedDataFiles;
 import org.apache.iceberg.spark.source.metrics.AddedDeleteFiles;
+import org.apache.iceberg.spark.source.metrics.AddedDVFiles;
 import org.apache.iceberg.spark.source.metrics.AddedEqualityDeleteFiles;
 import org.apache.iceberg.spark.source.metrics.AddedEqualityDeletes;
 import org.apache.iceberg.spark.source.metrics.AddedFileSizeInBytes;
@@ -290,6 +291,7 @@ public class SparkWriteUtil {
   public static CustomMetric[] supportedCustomMetrics() {
     return new CustomMetric[] {
       new AddedDataFiles(),
+      new AddedDVFiles(),
       new AddedDeleteFiles(),
       new AddedEqualityDeletes(),
       new AddedEqualityDeleteFiles(),
@@ -321,6 +323,7 @@ public class SparkWriteUtil {
       if (commitReport != null) {
         CommitMetricsResult result = commitReport.commitMetrics();
         addValue(new AddedDataFiles(), result.addedDataFiles(), metrics);
+        addValue(new AddedDVFiles(), result.addedDVFiles(), metrics);
         addValue(new AddedDeleteFiles(), result.addedDeleteFiles(), metrics);
         addValue(new AddedEqualityDeletes(), result.addedEqualityDeletes(), metrics);
         addValue(new AddedEqualityDeleteFiles(), result.addedEqualityDeleteFiles(), metrics);
